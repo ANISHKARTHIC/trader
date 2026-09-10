@@ -1,13 +1,16 @@
-"""End-to-end demo: TradingAgents decision -> TradePlan -> NautilusTrader
-paper-trading backtest with real risk gating.
+"""End-to-end: run TradingAgents on a ticker, translate its real decision into
+a TradePlan, and submit it as a NautilusTrader paper-trading bracket order
+with real risk gating.
 
 This is a smoke test proving the full chain works, not a strategy backtest
 in the proper sense (see Phase 14 of the research brief for what a real
-walk-forward backtest needs — this script trades on exactly one decision).
+walk-forward backtest needs — this script trades on exactly one decision,
+made with knowledge only up to `ANALYSIS_DATE`, then executed against the
+next available bar).
 
-Data: reuses the OHLCV CSV that TradingAgents itself cached to
-~/.tradingagents/cache/ during the RELIANCE.NS analysis run, so there is no
-new data dependency.
+Requires a local/cloud Ollama model (see vendor/TradingAgents README) — no
+paid LLM API key needed if using an Ollama cloud model such as
+gpt-oss:120b-cloud.
 
 Run:
     python -m agent.execution.run_paper_backtest
@@ -16,7 +19,6 @@ Run:
 from __future__ import annotations
 
 import glob
-from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -37,11 +39,14 @@ from nautilus_trader.model.instruments import Equity
 from nautilus_trader.model.objects import Money, Price, Quantity
 
 from agent.execution.paper_strategy import TradePlanStrategy, TradePlanStrategyConfig
-from agent.translator.trade_plan import TradePlanInputs, build_trade_plan
+from agent.translator.trade_plan import build_trade_plan
+from agent.translator.from_tradingagents import build_trade_plan_inputs_from_state
 
 CACHE_DIR = Path.home() / ".tradingagents" / "cache"
 VENUE = Venue("NSE")
 SYMBOL = "RELIANCE"
+ANALYSIS_DATE = "2026-08-15"
+ACCOUNT_EQUITY = 500_000.0
 PRICE_PRECISION = 2
 LOT_SIZE = 1  # NSE cash equity trades in single shares, no board lot for most stocks
 
@@ -76,7 +81,44 @@ def _load_bars(csv_path: Path, bar_type: BarType) -> list[Bar]:
     return bars
 
 
+def _get_trading_agents_decision(symbol_ns: str, analysis_date: str) -> dict:
+    """Run TradingAgents for real and return its final state dict.
+
+    Uses the same Ollama-cloud setup verified earlier in this project (no
+    paid API key). Two analysts and one debate round keep call count down —
+    this is a plumbing demo, not a tuned research configuration.
+    """
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
+    from tradingagents.default_config import DEFAULT_CONFIG
+
+    config = DEFAULT_CONFIG.copy()
+    config["llm_provider"] = "ollama"
+    config["deep_think_llm"] = "gpt-oss:120b-cloud"
+    config["quick_think_llm"] = "gpt-oss:120b-cloud"
+    config["max_debate_rounds"] = 1
+    config["max_risk_discuss_rounds"] = 1
+
+    ta = TradingAgentsGraph(
+        selected_analysts=("market", "fundamentals"),
+        debug=False,
+        config=config,
+    )
+    final_state, _signal = ta.propagate(symbol_ns, analysis_date)
+    return final_state
+
+
 def main() -> None:
+    ta_symbol = f"{SYMBOL}.NS"
+    print(f"Running TradingAgents on {ta_symbol} for {ANALYSIS_DATE} ...")
+    final_state = _get_trading_agents_decision(ta_symbol, ANALYSIS_DATE)
+    print(f"PM decision:\n{final_state['final_trade_decision']}\n")
+
+    plan_inputs = build_trade_plan_inputs_from_state(
+        final_state, account_equity=ACCOUNT_EQUITY, risk_per_trade_pct=0.5
+    )
+    plan = build_trade_plan(plan_inputs)
+    print(f"TradePlan (from real TradingAgents decision): {plan}\n")
+
     csv_path = _find_cached_csv(SYMBOL)
     print(f"Loading bars from {csv_path}")
 
@@ -116,27 +158,6 @@ def main() -> None:
     )
     engine.add_instrument(equity)
     engine.add_data(bars)
-
-    # --- Build one TradePlan from the last bar + a realized ATR, and attach
-    # it to the strategy before running. In the real system this comes from
-    # TradingAgents' PortfolioDecision/TraderProposal for the same date; here
-    # it's forced to BUY so the demo actually exercises order submission,
-    # risk-engine gating, and fills instead of a silent Hold no-op.
-    last_bar = bars[-1]
-    recent = [float(b.high) - float(b.low) for b in bars[-14:]]
-    atr_14 = sum(recent) / len(recent)
-
-    plan = build_trade_plan(
-        TradePlanInputs(
-            symbol=f"{SYMBOL}.NS",
-            rating="Buy",
-            last_price=float(last_bar.close),
-            atr_14=atr_14,
-            account_equity=500_000.0,
-            risk_per_trade_pct=0.5,
-        )
-    )
-    print(f"TradePlan: {plan}")
 
     strategy = TradePlanStrategy(
         TradePlanStrategyConfig(

@@ -18,8 +18,6 @@ NautilusTrader instead of hand-rolling both a backtester and a live executor.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from nautilus_trader.model.enums import OrderSide, OrderType, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price, Quantity
@@ -94,7 +92,6 @@ class TradePlanStrategy(Strategy):
             sl_trigger_price=Price(round(plan.stop, p), precision=p),
             time_in_force=TimeInForce.GTC,
         )
-        self._pending_plan = plan
         self.log.info(
             f"Submitting bracket for {plan.symbol}: {plan.side.value} "
             f"qty={plan.suggested_qty} entry={plan.entry} stop={plan.stop} "
