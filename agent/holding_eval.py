@@ -67,9 +67,9 @@ def _hard_levels(entry_price: float, atr_14: float, atr_stop_multiple: float = 2
 def evaluate_holding(
     holding: Holding,
     analysis_date: str,
-    llm_provider: str = "ollama",
-    deep_think_llm: str = "gpt-oss:120b-cloud",
-    quick_think_llm: str = "gpt-oss:120b-cloud",
+    llm_provider: str | None = None,
+    deep_think_llm: str | None = None,
+    quick_think_llm: str | None = None,
 ) -> HoldingEvaluation:
     """Run the hard-stop check and a full TradingAgents re-analysis on one holding."""
     symbol_ns = holding.yfinance_symbol

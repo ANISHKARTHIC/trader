@@ -7,6 +7,8 @@ document.querySelectorAll(".rail-btn[data-tab]").forEach((btn) => {
     btn.classList.add("active");
     document.getElementById(`tab-${btn.dataset.tab}`).style.display = "";
     if (btn.dataset.tab === "portfolio") refreshHoldings();
+    if (btn.dataset.tab === "journal") refreshJournalTab();
+    if (btn.dataset.tab === "settings") refreshSettingsTab();
   });
 });
 
@@ -418,3 +420,242 @@ async function refreshHoldings() {
 }
 
 refreshHoldings();
+
+// =====================================================================
+// Journal / learning
+// =====================================================================
+
+let selectedScanId = null;
+let journalLoaded = false;
+
+async function refreshJournalTab() {
+  document.getElementById("j_date").valueAsDate ||= new Date();
+  await Promise.all([
+    refreshLearningSummary(),
+    refreshScanHistory(),
+    refreshReflections(),
+    refreshJournalEntries(),
+  ]);
+}
+
+document.getElementById("journal-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    symbol: document.getElementById("j_symbol").value,
+    entry_date: document.getElementById("j_date").value,
+    action_taken: document.getElementById("j_action").value,
+    actual_qty: document.getElementById("j_qty").value ? parseInt(document.getElementById("j_qty").value, 10) : null,
+    actual_price: document.getElementById("j_price").value ? parseFloat(document.getElementById("j_price").value) : null,
+    notes: document.getElementById("j_notes").value || null,
+  };
+  await fetch("/api/journal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  document.getElementById("journal-form").reset();
+  document.getElementById("j_notes").value = "";
+  document.getElementById("j_date").valueAsDate = new Date();
+  refreshJournalEntries();
+});
+
+async function refreshJournalEntries() {
+  const res = await fetch("/api/journal?limit=50");
+  const entries = await res.json();
+  const listEl = document.getElementById("journal-entries-list");
+  if (entries.length === 0) {
+    listEl.innerHTML = `<p style="color:var(--ink-faint);font-size:13px;">No journal entries yet.</p>`;
+    return;
+  }
+  const actionLabel = { followed: "Followed", ignored: "Ignored", modified: "Modified", other: "Other" };
+  listEl.innerHTML = entries
+    .map((e) => `
+      <div class="reflection-card">
+        <div class="reflection-head">
+          <span class="rf-symbol">${e.symbol}</span>
+          <span class="tag">${actionLabel[e.action_taken] || e.action_taken}</span>
+          ${e.actual_qty ? `<span style="color:var(--ink-dim);font-family:var(--font-mono);font-size:12px;">${e.actual_qty} @ ${fmtPrice(e.actual_price)}</span>` : ""}
+          <span style="color:var(--ink-faint);margin-left:auto;">${e.entry_date}</span>
+        </div>
+        ${e.notes ? `<div class="reflection-body">${escapeHtml(e.notes)}</div>` : ""}
+        ${e.ai_reflection ? `<div class="reflection-body" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);"><strong>AI's own reflection:</strong> ${escapeHtml(e.ai_reflection)}</div>` : ""}
+      </div>
+    `)
+    .join("");
+}
+
+// =====================================================================
+// Settings
+// =====================================================================
+
+const llmForm = document.getElementById("llm-settings-form");
+const telegramForm = document.getElementById("telegram-settings-form");
+const providerSelect = document.getElementById("s_provider");
+const ollamaUrlField = document.getElementById("ollama-url-field");
+const apiKeyField = document.getElementById("api-key-field");
+
+function updateProviderFieldVisibility() {
+  const isOllama = providerSelect.value === "ollama";
+  ollamaUrlField.style.display = isOllama ? "" : "none";
+  apiKeyField.style.display = isOllama ? "none" : "";
+}
+providerSelect.addEventListener("change", updateProviderFieldVisibility);
+
+async function refreshSettingsTab() {
+  const res = await fetch("/api/settings");
+  const s = await res.json();
+
+  providerSelect.value = s.llm_provider;
+  document.getElementById("s_ollama_url").value = s.ollama_base_url;
+  document.getElementById("s_deep_model").value = s.deep_think_model;
+  document.getElementById("s_quick_model").value = s.quick_think_model;
+  document.getElementById("s_concurrency").value = s.max_concurrent_analyses;
+
+  const knownModelsList = document.getElementById("known-models");
+  knownModelsList.innerHTML = s.known_ollama_models.map((m) => `<option value="${m}">`).join("");
+
+  document.getElementById("api-key-current").textContent = s.llm_api_key_set
+    ? `Current: ${s.llm_api_key_masked}`
+    : "No key set";
+
+  document.getElementById("s_tg_chat").value = s.telegram_chat_id || "";
+  document.getElementById("tg-token-current").textContent = s.telegram_configured
+    ? `Current: ${s.telegram_bot_token_masked}`
+    : "No bot token set";
+  document.getElementById("telegram-status").innerHTML = s.telegram_configured
+    ? '<span style="color:var(--gain);">&#9679;</span> Notifications are active.'
+    : '<span style="color:var(--ink-faint);">&#9679;</span> Not configured — daily reports won\'t be sent.';
+
+  updateProviderFieldVisibility();
+}
+
+llmForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = llmForm.querySelector("button");
+  btn.disabled = true;
+  const apiKey = document.getElementById("s_api_key").value;
+  const body = {
+    llm_provider: providerSelect.value,
+    ollama_base_url: document.getElementById("s_ollama_url").value,
+    deep_think_model: document.getElementById("s_deep_model").value,
+    quick_think_model: document.getElementById("s_quick_model").value,
+    max_concurrent_analyses: parseInt(document.getElementById("s_concurrency").value, 10),
+  };
+  if (apiKey) body.llm_api_key = apiKey;
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  document.getElementById("s_api_key").value = "";
+  btn.disabled = false;
+  await refreshSettingsTab();
+});
+
+telegramForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = telegramForm.querySelector("button");
+  btn.disabled = true;
+  const token = document.getElementById("s_tg_token").value;
+  const body = { telegram_chat_id: document.getElementById("s_tg_chat").value };
+  if (token) body.telegram_bot_token = token;
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  document.getElementById("s_tg_token").value = "";
+  btn.disabled = false;
+  await refreshSettingsTab();
+});
+
+async function refreshLearningSummary() {
+  const res = await fetch("/api/learning/summary");
+  const s = await res.json();
+  document.getElementById("sum-total").textContent = s.total_resolved ?? "0";
+  document.getElementById("sum-accuracy").textContent =
+    s.directional_accuracy != null ? `${Math.round(s.directional_accuracy * 100)}%` : "—";
+  const alphaEl = document.getElementById("sum-alpha");
+  if (s.avg_alpha_vs_benchmark != null) {
+    const pct = (s.avg_alpha_vs_benchmark * 100).toFixed(2);
+    alphaEl.textContent = (s.avg_alpha_vs_benchmark >= 0 ? "+" : "") + pct + "%";
+    alphaEl.style.color = s.avg_alpha_vs_benchmark >= 0 ? "var(--gain)" : "var(--loss)";
+  } else {
+    alphaEl.textContent = "—";
+  }
+}
+
+async function refreshScanHistory() {
+  const res = await fetch("/api/history/scans?limit=30");
+  const scans = await res.json();
+  const listEl = document.getElementById("scan-history-list");
+  listEl.innerHTML = scans
+    .map(
+      (s) => `
+      <li class="scan-item${s.id === selectedScanId ? " selected" : ""}" data-id="${s.id}">
+        <span class="scan-date">${s.analysis_date}</span>
+        <span class="scan-meta">${s.kind} · <span class="badge badge-${s.status}">${s.status}</span></span>
+      </li>
+    `
+    )
+    .join("");
+  listEl.querySelectorAll(".scan-item").forEach((li) => {
+    li.addEventListener("click", () => loadScanReport(parseInt(li.dataset.id, 10)));
+  });
+}
+
+async function loadScanReport(scanId) {
+  selectedScanId = scanId;
+  await refreshScanHistory();
+  const res = await fetch(`/api/history/scans/${scanId}`);
+  const data = await res.json();
+  const col = document.getElementById("scan-report-col");
+  if (!data.decisions || data.decisions.length === 0) {
+    col.innerHTML = `<h2>Report — ${data.scan.analysis_date}</h2><p style="color:var(--ink-faint);font-size:13px;">No decisions recorded for this scan.</p>`;
+    return;
+  }
+  col.innerHTML = `
+    <h2>Report — ${data.scan.analysis_date}</h2>
+    ${data.decisions.map(reportRow).join("")}
+  `;
+}
+
+function reportRow(d) {
+  const rating = d.rating || "Hold";
+  const pnl = d.holding_unrealized_pnl;
+  return `
+    <div class="report-decision-row">
+      <span class="rd-symbol">${d.symbol}</span>
+      <span class="rating-pill rating-${rating}" style="font-size:11px;">${rating}</span>
+      <span style="color:var(--ink-dim);flex:1;">${escapeHtml(d.action_label)}</span>
+      ${pnl != null ? `<span class="metric-value ${pnl >= 0 ? "gain" : "loss"}" style="font-family:var(--font-mono);font-size:12.5px;">${pnl >= 0 ? "+" : ""}${fmtMoney(pnl)}</span>` : ""}
+    </div>
+  `;
+}
+
+async function refreshReflections() {
+  const res = await fetch("/api/learning/reflections?limit=30");
+  const reflections = await res.json();
+  const listEl = document.getElementById("reflections-list");
+  if (reflections.length === 0) {
+    listEl.innerHTML = `<p style="color:var(--ink-faint);font-size:13px;">No resolved decisions yet — reflections appear once TradingAgents can compare a past call to what actually happened.</p>`;
+    return;
+  }
+  listEl.innerHTML = reflections
+    .map((r) => {
+      const raw = parseFloat((r.raw_return || "0").replace("%", ""));
+      const cls = raw >= 0 ? "gain" : "loss";
+      return `
+        <div class="reflection-card">
+          <div class="reflection-head">
+            <span class="rf-symbol">${r.ticker}</span>
+            <span class="tag">${r.rating}</span>
+            <span class="rf-return ${cls}">${r.raw_return || "—"} raw · ${r.alpha_return || "—"} alpha</span>
+            <span style="color:var(--ink-faint);margin-left:auto;">${r.resolved_date || r.date}</span>
+          </div>
+          <div class="reflection-body">${escapeHtml(r.reflection)}</div>
+        </div>
+      `;
+    })
+    .join("");
+}

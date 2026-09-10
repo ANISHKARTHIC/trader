@@ -100,9 +100,9 @@ def _load_bars(csv_path: Path, bar_type: BarType) -> list[Bar]:
 def run_trading_agents(
     symbol_ns: str,
     analysis_date: str,
-    llm_provider: str = "ollama",
-    deep_think_llm: str = "gpt-oss:120b-cloud",
-    quick_think_llm: str = "gpt-oss:120b-cloud",
+    llm_provider: str | None = None,
+    deep_think_llm: str | None = None,
+    quick_think_llm: str | None = None,
     # Full analyst roster: market (technical), social (sentiment — news +
     # StockTwits + Reddit), news (macro/company news), fundamentals. This is
     # every analyst TradingAgents ships, not a subset — see
@@ -112,14 +112,22 @@ def run_trading_agents(
     max_debate_rounds: int = 2,
     max_risk_discuss_rounds: int = 2,
 ) -> dict:
-    """Run TradingAgents for real and return its final state dict."""
+    """Run TradingAgents for real and return its final state dict.
+
+    llm_provider/deep_think_llm/quick_think_llm default to whatever is
+    configured on the dashboard's Settings page (agent.settings) when not
+    passed explicitly — see resolve_llm_config for the env-var-first
+    precedence.
+    """
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
+    from agent.settings import resolve_llm_config
 
+    resolved = resolve_llm_config()
     config = DEFAULT_CONFIG.copy()
-    config["llm_provider"] = llm_provider
-    config["deep_think_llm"] = deep_think_llm
-    config["quick_think_llm"] = quick_think_llm
+    config["llm_provider"] = llm_provider or resolved["llm_provider"]
+    config["deep_think_llm"] = deep_think_llm or resolved["deep_think_llm"]
+    config["quick_think_llm"] = quick_think_llm or resolved["quick_think_llm"]
     config["max_debate_rounds"] = max_debate_rounds
     config["max_risk_discuss_rounds"] = max_risk_discuss_rounds
 
@@ -235,9 +243,9 @@ def run_full_pipeline(
     symbol_ns: str,
     analysis_date: str,
     account_equity: float = 500_000.0,
-    llm_provider: str = "ollama",
-    deep_think_llm: str = "gpt-oss:120b-cloud",
-    quick_think_llm: str = "gpt-oss:120b-cloud",
+    llm_provider: str | None = None,
+    deep_think_llm: str | None = None,
+    quick_think_llm: str | None = None,
 ) -> PipelineResult:
     """Run TradingAgents, then paper-trade the resulting decision. Blocking."""
     final_state = run_trading_agents(

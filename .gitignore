@@ -4,4 +4,6 @@ __pycache__/
 vendor/TradingAgents/.env
 .pytest_cache/
 data/portfolio.json
+data/verdict.db
+data/settings.json
 .claude/

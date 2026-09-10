@@ -24,7 +24,15 @@
         <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="1.5" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17" stroke="currentColor" stroke-width="1.8"/></svg>
         <span>Portfolio</span>
       </button>
+      <button class="rail-btn" data-tab="journal" title="Journal">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h9.5A2.5 2.5 0 0 1 18 6v14.5H8A2.5 2.5 0 0 1 5.5 18V6A2.5 2.5 0 0 1 8 3.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Journal</span>
+      </button>
       <div class="rail-spacer"></div>
+      <button class="rail-btn" data-tab="settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v3M12 18.5v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2.5 12h3M18.5 12h3M4.9 19.1l2.1-2.1M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Settings</span>
+      </button>
       <div class="rail-status" id="rail-status" title="Ollama model status">
         <span class="status-dot" id="status-dot"></span>
       </div>
@@ -56,7 +64,7 @@
         <section class="scan-controls">
           <div class="scan-controls-head">
             <h1>Today's actions</h1>
-            <p>A full screen of the Nifty 500, plus a full TradingAgents re-analysis of every holding and the strongest new setups &mdash; ranked by what needs attention first.</p>
+            <p>Every run screens the <strong>entire Nifty 500</strong> (~500 NSE stocks, momentum/RSI/volume/52-week/squeeze signals, no LLM, ~35s) to find the market's strongest setups, then runs the full TradingAgents analyst debate on every holding you own plus the top new ideas &mdash; ranked by what needs attention first.</p>
           </div>
           <form id="today-form" class="scan-form">
             <div class="field">
@@ -176,6 +184,144 @@
             </section>
           </section>
         </div>
+      </main>
+
+      <main id="tab-journal" class="tab-content view-journal" style="display:none">
+        <section class="summary-strip" id="learning-summary">
+          <div class="summary-tile">
+            <span class="summary-label">Resolved decisions</span>
+            <span class="summary-value" id="sum-total">&mdash;</span>
+          </div>
+          <div class="summary-tile">
+            <span class="summary-label">Directional accuracy</span>
+            <span class="summary-value" id="sum-accuracy">&mdash;</span>
+          </div>
+          <div class="summary-tile">
+            <span class="summary-label">Avg. alpha vs. benchmark</span>
+            <span class="summary-value" id="sum-alpha">&mdash;</span>
+          </div>
+        </section>
+
+        <div class="journal-columns">
+          <section class="journal-col">
+            <h2>Scan history</h2>
+            <ul id="scan-history-list" class="scan-list"></ul>
+          </section>
+
+          <section class="journal-col" id="scan-report-col">
+            <div class="empty-state">
+              <div class="icon-badge">
+                <svg viewBox="0 0 24 24" fill="none" width="24" height="24"><path d="M6 3.5h9.5A2.5 2.5 0 0 1 18 6v14.5H8A2.5 2.5 0 0 1 5.5 18V6A2.5 2.5 0 0 1 8 3.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </div>
+              <p>Select a scan to see its full report, or a symbol below to see what TradingAgents learned from past calls.</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="reflections-panel">
+          <h2>What the AI learned <span class="hint-inline">— TradingAgents' own resolved-outcome reflections</span></h2>
+          <div id="reflections-list"></div>
+        </section>
+
+        <section class="reflections-panel" style="margin-top:16px;">
+          <h2>Your trading journal <span class="hint-inline">— what you actually did, separate from the AI's own self-assessment above</span></h2>
+          <form id="journal-form" class="scan-form" style="margin-bottom:18px;">
+            <div class="field">
+              <label for="j_symbol">Symbol</label>
+              <input type="text" id="j_symbol" placeholder="RELIANCE" required />
+            </div>
+            <div class="field">
+              <label for="j_date">Date</label>
+              <input type="date" id="j_date" required />
+            </div>
+            <div class="field">
+              <label for="j_action">What you did</label>
+              <select id="j_action" style="background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--ink);font-family:var(--font-mono);font-size:13px;width:140px;">
+                <option value="followed">Followed the call</option>
+                <option value="ignored">Ignored it</option>
+                <option value="modified">Did something else</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="j_qty">Qty</label>
+              <input type="number" id="j_qty" min="1" />
+            </div>
+            <div class="field">
+              <label for="j_price">Price</label>
+              <div class="input-prefix"><span>₹</span><input type="number" id="j_price" step="0.01" /></div>
+            </div>
+            <button type="submit" class="btn-primary">Add entry</button>
+          </form>
+          <div class="field" style="margin-bottom:14px;">
+            <label for="j_notes">Notes (optional)</label>
+            <input type="text" id="j_notes" placeholder="Why you did (or didn't) follow the call" style="width:100%;background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--ink);font-size:13px;" />
+          </div>
+          <div id="journal-entries-list"></div>
+        </section>
+      </main>
+
+      <main id="tab-settings" class="tab-content view-settings" style="display:none">
+        <section class="scan-controls compact" style="max-width:560px;">
+          <div class="scan-controls-head">
+            <h1>LLM provider</h1>
+            <p>Which model runs the TradingAgents analyst debate. Ollama (local daemon, free cloud models) is what this project has used throughout &mdash; a hosted API key is optional, for switching to OpenAI/Anthropic/etc. later.</p>
+          </div>
+          <form id="llm-settings-form" class="scan-form stacked">
+            <div class="field">
+              <label for="s_provider">Provider</label>
+              <select id="s_provider" class="select-input">
+                <option value="ollama">Ollama (local / cloud models)</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google (Gemini)</option>
+              </select>
+            </div>
+            <div class="field" id="ollama-url-field">
+              <label for="s_ollama_url">Ollama endpoint</label>
+              <input type="text" id="s_ollama_url" style="width:100%;" />
+            </div>
+            <div class="field">
+              <label for="s_deep_model">Deep-think model <span class="hint-inline">(debates, final decisions)</span></label>
+              <input type="text" id="s_deep_model" list="known-models" style="width:100%;" />
+            </div>
+            <div class="field">
+              <label for="s_quick_model">Quick-think model <span class="hint-inline">(per-analyst calls)</span></label>
+              <input type="text" id="s_quick_model" list="known-models" style="width:100%;" />
+            </div>
+            <datalist id="known-models"></datalist>
+            <div class="field" id="api-key-field" style="display:none;">
+              <label for="s_api_key">API key</label>
+              <input type="password" id="s_api_key" placeholder="Leave blank to keep the current key" style="width:100%;" />
+              <span class="hint-inline" id="api-key-current"></span>
+            </div>
+            <div class="field">
+              <label for="s_concurrency">Max concurrent analyses <span class="hint-inline">(tickers analyzed at once in a Today scan)</span></label>
+              <input type="number" id="s_concurrency" min="1" max="10" style="width:100px;" />
+            </div>
+            <button type="submit" class="btn-primary" style="width:fit-content;">Save LLM settings</button>
+          </form>
+        </section>
+
+        <section class="scan-controls compact" style="max-width:560px;margin-top:16px;">
+          <div class="scan-controls-head">
+            <h1>Telegram notifications</h1>
+            <p>Sends a formatted daily report to your phone after every Today scan. Create a bot with @BotFather on Telegram, message it once, then fetch your chat id from api.telegram.org/bot&lt;token&gt;/getUpdates.</p>
+          </div>
+          <form id="telegram-settings-form" class="scan-form stacked">
+            <div class="field">
+              <label for="s_tg_token">Bot token</label>
+              <input type="password" id="s_tg_token" placeholder="Leave blank to keep the current token" style="width:100%;" />
+              <span class="hint-inline" id="tg-token-current"></span>
+            </div>
+            <div class="field">
+              <label for="s_tg_chat">Chat ID</label>
+              <input type="text" id="s_tg_chat" style="width:100%;" />
+            </div>
+            <button type="submit" class="btn-primary" style="width:fit-content;">Save Telegram settings</button>
+          </form>
+          <p class="hint" id="telegram-status" style="margin-top:14px;"></p>
+        </section>
       </main>
     </div>
   </div>

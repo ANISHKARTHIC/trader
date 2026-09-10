@@ -1,8 +1,7 @@
 """Telegram notifications for the companion.
 
-Config comes from two env vars, not a config file — a bot token is a secret,
-and the .gitignore already keeps .env-style files out of the repo (see
-vendor/TradingAgents/.env.example for the existing pattern this follows):
+Config comes from agent.settings (env var > Settings page in the dashboard
+> unset), via resolve_telegram_config():
 
     TELEGRAM_BOT_TOKEN   — from @BotFather after /newbot
     TELEGRAM_CHAT_ID     — your own chat id (message the bot once, then hit
@@ -17,7 +16,8 @@ top of the dashboard, not a dependency the core pipeline should break on.
 from __future__ import annotations
 
 import logging
-import os
+
+from agent.settings import resolve_telegram_config
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +26,16 @@ _warned_missing_config = False
 
 def _get_config() -> tuple[str, str] | None:
     global _warned_missing_config
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
+    config = resolve_telegram_config()
+    if config is None:
         if not _warned_missing_config:
             logger.warning(
-                "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — "
-                "Telegram notifications are disabled."
+                "Telegram bot token / chat id not set (env var or Settings page) — "
+                "notifications are disabled."
             )
             _warned_missing_config = True
         return None
-    return token, chat_id
+    return config
 
 
 def is_configured() -> bool:
