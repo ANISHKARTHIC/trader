@@ -13,6 +13,14 @@ Signals used, all standard/well-understood, each independently interpretable:
 - volume_ratio: today's volume vs 20-day average — flags unusual activity
 - above_50sma / above_200sma: trend-following context
 - macd_hist: MACD histogram sign/magnitude — momentum acceleration
+- near_52w_high / near_52w_low: within 3% of the trailing 52-week extreme —
+  a breakout/breakdown proximity signal, the single most common screen in
+  professional and retail tools alike (see e.g. PKScreener's
+  find52WeekHighBreakout, github.com/pkjmesra/PKScreener)
+- bband_squeeze: Bollinger Bands sitting inside a Keltner Channel — a
+  volatility-contraction signal (the "TTM Squeeze") that historically
+  precedes a directional expansion; ported as a from-scratch implementation
+  of the same well-known technique, not copied code
 
 A single "screen_score" combines these into one rank; it is a heuristic, not
 a validated alpha signal — see Phase 14/15 of the research brief on what a
@@ -30,7 +38,9 @@ from stockstats import StockDataFrame
 from agent.screener.universe import Instrument, get_nifty500
 
 BATCH_SIZE = 50  # yfinance bulk-download batch size; keeps single requests reasonable
-LOOKBACK_PERIOD = "6mo"  # enough history for 200-SMA + RSI + MACD to stabilize
+LOOKBACK_PERIOD = "1y"  # needs a full year for genuine 52-week high/low levels
+NEAR_52W_PCT = 0.03  # within 3% of the trailing 52-week high/low counts as "near"
+KELTNER_ATR_MULTIPLE = 1.5  # standard TTM Squeeze Keltner width
 
 
 @dataclass
@@ -45,6 +55,9 @@ class ScreenResult:
     above_50sma: bool
     above_200sma: bool
     macd_hist: float
+    near_52w_high: bool
+    near_52w_low: bool
+    bband_squeeze: bool
     screen_score: float
 
 
@@ -53,7 +66,9 @@ def _score(r: dict) -> float:
 
     Rewards: positive momentum, RSI in a constructive-not-overbought band,
     unusual volume (either direction — a spike is informative either way),
-    trend alignment (above both SMAs), and positive/accelerating MACD.
+    trend alignment (above both SMAs), positive/accelerating MACD, proximity
+    to a 52-week breakout, and a volatility squeeze (a setup, not a
+    direction — rewarded modestly since it says "watch this," not "buy this").
     """
     score = 0.0
     score += max(min(r["momentum_21d"], 0.30), -0.30) * 100  # cap influence of outliers
@@ -68,6 +83,12 @@ def _score(r: dict) -> float:
     if r["above_200sma"]:
         score += 5
     score += max(min(r["macd_hist"], 5), -5)
+    if r["near_52w_high"]:
+        score += 12
+    if r["near_52w_low"]:
+        score -= 6  # not necessarily bad (mean-reversion candidate) but de-prioritized in a momentum-leaning rank
+    if r["bband_squeeze"]:
+        score += 6
     return round(score, 2)
 
 
@@ -91,7 +112,12 @@ def _screen_one(symbol: str, df: pd.DataFrame) -> dict | None:
     )
     rsi = sdf["rsi_14"]
     macd_hist = sdf["macdh"]
+    boll_ub = sdf["boll_ub"]
+    boll_lb = sdf["boll_lb"]
+    atr = sdf["atr"]
     close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
     volume = df["Volume"]
 
     if len(close) < 21 or close.iloc[-21] == 0:
@@ -100,17 +126,42 @@ def _screen_one(symbol: str, df: pd.DataFrame) -> dict | None:
     momentum_21d = float(close.iloc[-1] / close.iloc[-21] - 1)
     sma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else None
     sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else None
+    ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
     avg_vol_20 = volume.tail(20).mean()
+
+    last_close = float(close.iloc[-1])
+    week52_high = float(high.tail(252).max())
+    week52_low = float(low.tail(252).min())
+    near_52w_high = bool(week52_high > 0 and last_close >= week52_high * (1 - NEAR_52W_PCT))
+    near_52w_low = bool(week52_low > 0 and last_close <= week52_low * (1 + NEAR_52W_PCT))
+
+    # TTM-style squeeze: Bollinger Bands sitting entirely inside a Keltner
+    # Channel (EMA20 +/- 1.5*ATR) — a volatility-contraction setup, not a
+    # direction. See module docstring.
+    last_atr = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0.0
+    keltner_upper = float(ema20 + KELTNER_ATR_MULTIPLE * last_atr)
+    keltner_lower = float(ema20 - KELTNER_ATR_MULTIPLE * last_atr)
+    last_boll_ub = float(boll_ub.iloc[-1]) if not pd.isna(boll_ub.iloc[-1]) else None
+    last_boll_lb = float(boll_lb.iloc[-1]) if not pd.isna(boll_lb.iloc[-1]) else None
+    bband_squeeze = bool(
+        last_boll_ub is not None
+        and last_boll_lb is not None
+        and last_boll_ub < keltner_upper
+        and last_boll_lb > keltner_lower
+    )
 
     return {
         "symbol": symbol,
-        "last_close": float(close.iloc[-1]),
+        "last_close": last_close,
         "momentum_21d": momentum_21d,
         "rsi_14": float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50.0,
         "volume_ratio": float(volume.iloc[-1] / avg_vol_20) if avg_vol_20 else 1.0,
-        "above_50sma": bool(sma50 is not None and close.iloc[-1] > sma50),
-        "above_200sma": bool(sma200 is not None and close.iloc[-1] > sma200),
+        "above_50sma": bool(sma50 is not None and last_close > sma50),
+        "above_200sma": bool(sma200 is not None and last_close > sma200),
         "macd_hist": float(macd_hist.iloc[-1]) if not pd.isna(macd_hist.iloc[-1]) else 0.0,
+        "near_52w_high": near_52w_high,
+        "near_52w_low": near_52w_low,
+        "bband_squeeze": bband_squeeze,
     }
 
 
@@ -170,6 +221,9 @@ def run_screen(
                 above_50sma=row["above_50sma"],
                 above_200sma=row["above_200sma"],
                 macd_hist=row["macd_hist"],
+                near_52w_high=row["near_52w_high"],
+                near_52w_low=row["near_52w_low"],
+                bband_squeeze=row["bband_squeeze"],
                 screen_score=row["screen_score"],
             )
         )

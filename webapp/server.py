@@ -13,6 +13,7 @@ Then open http://localhost:8000
 
 from __future__ import annotations
 
+import logging
 import threading
 import traceback
 import uuid
@@ -28,7 +29,10 @@ from pydantic import BaseModel
 
 from agent.pipeline import run_full_pipeline
 from agent.companion import build_today
+from agent.notify.daily_report import send_daily_report
 from agent.portfolio.store import list_holdings, upsert_holding, remove_holding
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Trading Agent Dashboard")
 
@@ -204,6 +208,10 @@ def _run_today_job(job: TodayJob, account_equity: float) -> None:
             )
         job.result = out
         job.status = "done"
+        try:
+            send_daily_report(actions, job.analysis_date)
+        except Exception:
+            logger.warning("Telegram daily report failed to send", exc_info=True)
     except Exception:
         job.error = traceback.format_exc()
         job.status = "error"
