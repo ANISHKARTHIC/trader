@@ -45,7 +45,12 @@ class Settings:
     llm_api_key: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    max_concurrent_analyses: int = 4
+    # Verified against this account's Ollama cloud endpoint: 6 genuinely
+    # concurrent long-running calls finished in ~42s wall time (the longest
+    # single call), not ~126s (the sequential sum) — real parallelism, not
+    # queuing. Raised from 4 on that basis; the Settings page lets this be
+    # tuned down if a different account/tier throttles harder.
+    max_concurrent_analyses: int = 6
 
 
 def _read_raw() -> dict:
