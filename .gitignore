@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 vendor/TradingAgents/.env
 .pytest_cache/
+data/portfolio.json
+.claude/

@@ -45,7 +45,7 @@ def _extract_price_field(pattern: re.Pattern, text: str) -> float | None:
         return None
 
 
-def _load_atr_and_last_price(symbol_ns: str, atr_period: int = 14) -> tuple[float, float]:
+def load_atr_and_last_price(symbol_ns: str, atr_period: int = 14) -> tuple[float, float]:
     """symbol_ns like 'RELIANCE.NS' -> (atr, last_close), from the cached CSV."""
     base = symbol_ns.removesuffix(".NS").removesuffix(".BO")
     matches = sorted(glob.glob(str(CACHE_DIR / f"{base}.NS-YFin-data-*.csv"))) or sorted(
@@ -91,7 +91,7 @@ def build_trade_plan_inputs_from_state(
             f"PM text: {pm_text[:200]!r}"
         )
 
-    atr_14, last_price = _load_atr_and_last_price(symbol)
+    atr_14, last_price = load_atr_and_last_price(symbol)
 
     return TradePlanInputs(
         symbol=symbol,
