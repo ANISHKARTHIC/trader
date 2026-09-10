@@ -8,6 +8,7 @@ future CLI/script share one implementation instead of copy-pasted logic.
 from __future__ import annotations
 
 import glob
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,6 +37,18 @@ CACHE_DIR = Path.home() / ".tradingagents" / "cache"
 VENUE = Venue("NSE")
 PRICE_PRECISION = 2
 LOT_SIZE = 1
+
+# TradingAgents' TradingMemoryLog does a read -> rewrite -> atomic-replace on
+# a single shared file (batch_update_with_outcomes / store_decision's
+# idempotency read) — safe for one propagate() call at a time, but two
+# tickers' pipelines running concurrently (see agent/companion.py's thread
+# pool) can race on it: the second writer's read predates the first
+# writer's update, so it silently clobbers it. The 15-20 sequential LLM
+# calls inside a single propagate() run touch no shared file at all, only
+# its narrow start/end memory-log I/O does — so a lock scoped to just that
+# I/O (not the whole call) preserves almost all of the parallelism gain.
+# See _locked_memory_log below for where this is applied.
+_memory_log_io_lock = threading.Lock()
 
 
 @dataclass
@@ -115,8 +128,26 @@ def run_trading_agents(
         debug=False,
         config=config,
     )
+    _guard_memory_log_io(ta.memory_log)
     final_state, _signal = ta.propagate(symbol_ns, analysis_date)
     return final_state
+
+
+def _guard_memory_log_io(memory_log) -> None:
+    """Wrap a TradingMemoryLog instance's file-touching methods so concurrent
+    propagate() calls (agent/companion.py runs several tickers' pipelines in
+    parallel threads) can't race on its shared log file. See the module-level
+    comment above _memory_log_io_lock for why this is needed and why it's
+    scoped this narrowly rather than locking the whole pipeline call.
+    """
+    for method_name in ("store_decision", "batch_update_with_outcomes"):
+        original = getattr(memory_log, method_name)
+
+        def locked(*args, _original=original, **kwargs):
+            with _memory_log_io_lock:
+                return _original(*args, **kwargs)
+
+        setattr(memory_log, method_name, locked)
 
 
 def run_paper_trade(final_state: dict, account_equity: float = 500_000.0) -> PipelineResult:

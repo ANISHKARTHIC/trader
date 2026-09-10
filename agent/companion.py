@@ -17,6 +17,8 @@ for a holding vs. a fresh idea.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -61,18 +63,43 @@ def _label_for_new_idea(side: Side) -> ActionLabel:
     return ActionLabel.BUY_NEW if side is Side.BUY else ActionLabel.WATCH
 
 
+def _analyze_one(
+    symbol: str, is_holding: bool, analysis_date: str,
+    account_equity: float, holdings_by_symbol: dict[str, Holding],
+) -> tuple[ActionLabel, PipelineResult, HoldingEvaluation | None]:
+    if is_holding:
+        holding_eval = evaluate_holding(holdings_by_symbol[symbol], analysis_date)
+        return _VERDICT_TO_LABEL[holding_eval.verdict], holding_eval.ta_result, holding_eval
+    result = run_full_pipeline(f"{symbol}.NS", analysis_date, account_equity=account_equity)
+    return _label_for_new_idea(result.trade_plan.side), result, None
+
+
 def build_today(
     analysis_date: str | None = None,
     screen_top_n: int = 30,
     deep_analyze_top_n: int = 8,
     account_equity: float = 500_000.0,
     progress_cb=None,
+    max_concurrent_analyses: int = 4,
 ) -> list[CompanionAction]:
     """Run the full companion pipeline. Blocking — call from a background job.
 
     `progress_cb(stage: str, done: int, total: int)` is called at each step
     so a caller (the web dashboard) can show live progress across what is,
     in total, potentially dozens of LLM-backed analyses.
+
+    Each ticker's TradingAgents run is 15-20+ sequential LLM calls (see
+    agent/pipeline.py) — that sequencing is intrinsic to the graph and not
+    something this layer can shortcut. What this layer *can* fix is running
+    several tickers' independent pipelines concurrently instead of one
+    ticker fully finishing before the next starts, which is what made a
+    full "Today" scan take hours instead of minutes. `max_concurrent_analyses`
+    bounds how many tickers run at once — the Ollama cloud endpoint handles
+    concurrent requests well (verified: 4 concurrent single-token calls
+    completed in ~3s total, not 4x sequential), but going too wide risks
+    hitting rate limits or genuinely saturating the model's own concurrency.
+    TradingAgents' shared decision-log file is protected against the
+    resulting concurrent writes by agent.pipeline._guard_memory_log_io.
     """
     analysis_date = analysis_date or date.today().isoformat()
 
@@ -98,36 +125,42 @@ def build_today(
 
     actions: list[CompanionAction] = []
     total = len(to_analyze)
-    for i, (symbol, is_holding) in enumerate(to_analyze):
-        if progress_cb:
-            progress_cb("analyzing", i, total)
+    progress_lock = threading.Lock()
+    done_count = 0
+
+    def run_one(item: tuple[str, bool]) -> CompanionAction | None:
+        nonlocal done_count
+        symbol, is_holding = item
         try:
-            if is_holding:
-                holding_eval = evaluate_holding(holdings_by_symbol[symbol], analysis_date)
-                result = holding_eval.ta_result
-                label = _VERDICT_TO_LABEL[holding_eval.verdict]
-            else:
-                holding_eval = None
-                result = run_full_pipeline(
-                    f"{symbol}.NS", analysis_date, account_equity=account_equity
-                )
-                label = _label_for_new_idea(result.trade_plan.side)
-        except Exception:
-            continue  # one bad ticker (delisted, no data, LLM hiccup) shouldn't kill the run
-        actions.append(
-            CompanionAction(
-                symbol=symbol,
-                label=label,
-                is_existing_holding=is_holding,
-                screen_score=screen_by_symbol[symbol].screen_score
-                if symbol in screen_by_symbol
-                else None,
-                result=result,
-                holding_eval=holding_eval,
+            label, result, holding_eval = _analyze_one(
+                symbol, is_holding, analysis_date, account_equity, holdings_by_symbol
             )
+        except Exception:
+            return None  # one bad ticker (delisted, no data, LLM hiccup) shouldn't kill the run
+        finally:
+            with progress_lock:
+                done_count += 1
+                if progress_cb:
+                    progress_cb("analyzing", done_count, total)
+        return CompanionAction(
+            symbol=symbol,
+            label=label,
+            is_existing_holding=is_holding,
+            screen_score=screen_by_symbol[symbol].screen_score
+            if symbol in screen_by_symbol
+            else None,
+            result=result,
+            holding_eval=holding_eval,
         )
+
     if progress_cb:
-        progress_cb("analyzing", total, total)
+        progress_cb("analyzing", 0, total)
+    with ThreadPoolExecutor(max_workers=max(1, max_concurrent_analyses)) as pool:
+        futures = [pool.submit(run_one, item) for item in to_analyze]
+        for future in as_completed(futures):
+            action = future.result()
+            if action is not None:
+                actions.append(action)
 
     _ACTION_PRIORITY = {
         ActionLabel.EXIT: 0,
