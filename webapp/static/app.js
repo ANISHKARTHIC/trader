@@ -9,6 +9,7 @@ document.querySelectorAll(".rail-btn[data-tab]").forEach((btn) => {
     if (btn.dataset.tab === "portfolio") refreshHoldings();
     if (btn.dataset.tab === "journal") refreshJournalTab();
     if (btn.dataset.tab === "settings") refreshSettingsTab();
+    if (btn.dataset.tab === "chat") loadChatHistory();
   });
 });
 
@@ -679,3 +680,110 @@ async function refreshReflections() {
     })
     .join("");
 }
+
+// =====================================================================
+// Chat
+// =====================================================================
+
+const chatMessagesEl = document.getElementById("chat-messages");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+let chatHistoryLoaded = false;
+
+// Minimal markdown -> HTML: bold, inline code, markdown tables, line breaks.
+// Not a general markdown renderer — just enough for how the model actually
+// formats answers (tables of holdings/prices, **bold** labels).
+function renderChatMarkdown(text) {
+  const escaped = escapeHtml(text);
+  const lines = escaped.split("\n");
+  let html = "";
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith("|") && lines[i + 1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+      const headerCells = line.split("|").map((c) => c.trim()).filter((c) => c !== "");
+      let tableHtml = "<table><thead><tr>" + headerCells.map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        const cells = lines[i].split("|").map((c) => c.trim()).filter((c) => c !== "");
+        tableHtml += "<tr>" + cells.map((c) => `<td>${c}</td>`).join("") + "</tr>";
+        i++;
+      }
+      tableHtml += "</tbody></table>";
+      html += tableHtml;
+      continue;
+    }
+    html += line + "\n";
+    i++;
+  }
+  return html
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function appendChatBubble(role, content) {
+  const row = document.createElement("div");
+  row.className = `chat-bubble-row ${role}`;
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+  bubble.innerHTML = role === "assistant" ? renderChatMarkdown(content) : escapeHtml(content);
+  row.appendChild(bubble);
+  chatMessagesEl.appendChild(row);
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  return row;
+}
+
+async function loadChatHistory() {
+  if (chatHistoryLoaded) return;
+  chatHistoryLoaded = true;
+  const res = await fetch("/api/chat/messages?limit=50");
+  const messages = await res.json();
+  if (messages.length === 0) return; // keep the empty-state/suggestions visible
+  chatMessagesEl.innerHTML = "";
+  for (const m of messages) appendChatBubble(m.role, m.content);
+}
+
+async function sendChatMessage(text) {
+  if (!text.trim()) return;
+  if (chatMessagesEl.querySelector(".empty-state")) chatMessagesEl.innerHTML = "";
+
+  appendChatBubble("user", text);
+  chatInput.value = "";
+  document.getElementById("chat-send-btn").disabled = true;
+
+  const typingRow = document.createElement("div");
+  typingRow.className = "chat-bubble-row assistant";
+  typingRow.innerHTML = `<div class="chat-typing"><span class="spinner"></span> thinking…</div>`;
+  chatMessagesEl.appendChild(typingRow);
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+
+  try {
+    const res = await fetch("/api/chat/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    typingRow.remove();
+    if (!res.ok) {
+      appendChatBubble("assistant", "Something went wrong reaching the model — check Settings that Ollama is configured correctly.");
+      return;
+    }
+    const data = await res.json();
+    appendChatBubble("assistant", data.reply);
+  } catch (err) {
+    typingRow.remove();
+    appendChatBubble("assistant", "Couldn't reach the server. Is it still running?");
+  } finally {
+    document.getElementById("chat-send-btn").disabled = false;
+    chatInput.focus();
+  }
+}
+
+chatForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  sendChatMessage(chatInput.value);
+});
+
+document.querySelectorAll(".suggestion-chip").forEach((chip) => {
+  chip.addEventListener("click", () => sendChatMessage(chip.dataset.q));
+});

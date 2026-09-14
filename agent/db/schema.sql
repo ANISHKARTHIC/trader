@@ -80,3 +80,15 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 
 CREATE INDEX IF NOT EXISTS idx_journal_symbol ON journal_entries(symbol);
 CREATE INDEX IF NOT EXISTS idx_journal_decision ON journal_entries(decision_id);
+
+-- Chat history — single-user local tool, so one running conversation
+-- (no multi-session/multi-user concept) that persists across dashboard
+-- restarts, same reasoning as scans/decisions above.
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);

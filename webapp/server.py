@@ -35,9 +35,12 @@ from agent.db.store import (
     init_db, create_scan, complete_scan, record_decision,
     list_scans, get_scan, list_decisions_for_scan,
     add_journal_entry, list_journal_entries,
+    add_chat_message, list_chat_messages, clear_chat_messages,
 )
 from agent.db.learning import get_reflections, get_performance_summary, get_journal_with_reflections
 from agent.settings import get_settings, update_settings, KNOWN_OLLAMA_MODELS
+from agent.chat.engine import run_chat_turn
+from agent.chat.tools import register_start_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -98,20 +101,36 @@ def _run_job(job: Job, account_equity: float, mode: str) -> None:
         job.status = "error"
 
 
-@app.post("/api/analyze")
-def start_analysis(req: AnalyzeRequest) -> dict:
-    symbol = _normalize_symbol(req.symbol)
+def _start_analysis_job(symbol: str, analysis_date: str, mode: str, account_equity: float = 500_000.0) -> dict:
+    """Shared by the /api/analyze endpoint and the chat's start_analysis tool."""
+    symbol = _normalize_symbol(symbol)
     job_id = uuid.uuid4().hex[:12]
-    job = Job(job_id, symbol, req.analysis_date, mode=req.mode)
+    job = Job(job_id, symbol, analysis_date, mode=mode)
     with _jobs_lock:
         _jobs[job_id] = job
 
-    thread = threading.Thread(
-        target=_run_job, args=(job, req.account_equity, req.mode), daemon=True
-    )
+    thread = threading.Thread(target=_run_job, args=(job, account_equity, mode), daemon=True)
     thread.start()
 
     return {"job_id": job_id, "status": job.status}
+
+
+@app.post("/api/analyze")
+def start_analysis(req: AnalyzeRequest) -> dict:
+    return _start_analysis_job(req.symbol, req.analysis_date, req.mode, req.account_equity)
+
+
+def _chat_start_analysis(symbol_ns: str, mode: str) -> dict:
+    today = datetime.now().date().isoformat()
+    result = _start_analysis_job(symbol_ns, today, mode)
+    result["message"] = (
+        f"Started a {mode} analysis on {symbol_ns} (job {result['job_id']}). "
+        "Check the Research tab, or ask again in a couple of minutes."
+    )
+    return result
+
+
+register_start_analysis(_chat_start_analysis)
 
 
 @app.get("/api/jobs/{job_id}")
@@ -455,6 +474,40 @@ def get_settings_endpoint() -> dict:
 def update_settings_endpoint(req: SettingsRequest) -> dict:
     update_settings(**req.model_dump(exclude_none=True))
     return get_settings_endpoint()
+
+
+# --- Chat ---
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@app.get("/api/chat/messages")
+def get_chat_messages(limit: int = 50) -> list[dict]:
+    return list_chat_messages(limit=limit)
+
+
+@app.post("/api/chat/messages")
+def post_chat_message(req: ChatRequest) -> dict:
+    # History is DB-backed (persists across restarts) rather than the
+    # in-memory pattern used for analysis jobs — a conversation, unlike a
+    # job, has no natural "done" state to eventually stop tracking.
+    prior = [{"role": m["role"], "content": m["content"]} for m in list_chat_messages(limit=30)]
+    try:
+        reply, _ = run_chat_turn(prior, req.message)
+    except Exception:
+        logger.warning("Chat turn failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Chat backend failed — check Ollama is reachable.")
+    add_chat_message("user", req.message)
+    add_chat_message("assistant", reply)
+    return {"reply": reply}
+
+
+@app.delete("/api/chat/messages")
+def delete_chat_messages() -> dict:
+    clear_chat_messages()
+    return {"cleared": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

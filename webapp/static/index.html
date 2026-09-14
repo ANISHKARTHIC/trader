@@ -16,6 +16,10 @@
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 18l5-6 4 4 7-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Today</span>
       </button>
+      <button class="rail-btn" data-tab="chat" title="Chat">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5h16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H10l-4.5 4V16H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        <span>Chat</span>
+      </button>
       <button class="rail-btn" data-tab="single" title="Research">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4.5-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         <span>Research</span>
@@ -106,6 +110,29 @@
             <p>Run a scan to see today's ranked calls &mdash; exits and trims first, then new opportunities.</p>
           </div>
         </section>
+      </main>
+
+      <main id="tab-chat" class="tab-content view-chat" style="display:none">
+        <div class="chat-shell">
+          <div class="chat-messages" id="chat-messages">
+            <div class="empty-state">
+              <div class="icon-badge">
+                <svg viewBox="0 0 24 24" fill="none" width="24" height="24"><path d="M4 5.5h16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H10l-4.5 4V16H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+              </div>
+              <p>Ask about your portfolio, a symbol, or past calls &mdash; grounded in your real data, not guesses. Say "analyze RELIANCE" to run the full pipeline.</p>
+              <div class="chat-suggestions">
+                <button type="button" class="suggestion-chip" data-q="How is my portfolio doing?">How is my portfolio doing?</button>
+                <button type="button" class="suggestion-chip" data-q="What's the current price of RELIANCE?">Price of RELIANCE?</button>
+                <button type="button" class="suggestion-chip" data-q="How accurate have your past calls been?">How accurate have you been?</button>
+                <button type="button" class="suggestion-chip" data-q="Should I buy TCS right now?">Should I buy TCS?</button>
+              </div>
+            </div>
+          </div>
+          <form id="chat-form" class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Ask about your portfolio, a symbol, or a past call…" autocomplete="off" />
+            <button type="submit" id="chat-send-btn" class="btn-primary">Send</button>
+          </form>
+        </div>
       </main>
 
       <main id="tab-single" class="tab-content view-single" style="display:none">

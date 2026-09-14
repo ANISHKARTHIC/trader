@@ -195,3 +195,30 @@ def list_journal_entries(symbol: str | None = None, limit: int = 100) -> list[di
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+# --- Chat ---
+
+
+def add_chat_message(role: str, content: str) -> int:
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+            (role, content, _now()),
+        )
+        return cur.lastrowid
+
+
+def list_chat_messages(limit: int = 50) -> list[dict]:
+    """Most recent `limit` messages, oldest first (chat display order)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM (SELECT * FROM chat_messages ORDER BY id DESC LIMIT ?) ORDER BY id ASC",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def clear_chat_messages() -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM chat_messages")
