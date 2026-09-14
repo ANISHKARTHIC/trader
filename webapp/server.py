@@ -33,14 +33,14 @@ from agent.notify.daily_report import send_daily_report
 from agent.portfolio.store import list_holdings, upsert_holding, remove_holding
 from agent.db.store import (
     init_db, create_scan, complete_scan, record_decision,
-    list_scans, get_scan, list_decisions_for_scan,
+    list_scans, get_scan, list_decisions_for_scan, list_decisions_for_symbol,
     add_journal_entry, list_journal_entries,
     add_chat_message, list_chat_messages, clear_chat_messages,
 )
 from agent.db.learning import get_reflections, get_performance_summary, get_journal_with_reflections
 from agent.settings import get_settings, update_settings, KNOWN_OLLAMA_MODELS
 from agent.chat.engine import run_chat_turn
-from agent.chat.tools import register_start_analysis
+from agent.chat.tools import register_start_analysis, tool_get_quote
 
 logger = logging.getLogger(__name__)
 
@@ -358,6 +358,35 @@ def delete_holding(symbol: str) -> dict:
     return {"removed": symbol.upper()}
 
 
+# --- Symbol view (the cross-linking hub: everything the app knows about one stock) ---
+
+
+@app.get("/api/symbol/{symbol}")
+def get_symbol_bundle(symbol: str) -> dict:
+    base = symbol.strip().upper().removesuffix(".NS").removesuffix(".BO")
+    holding = next((h for h in list_holdings() if h.symbol == base), None)
+    decisions = list_decisions_for_symbol(base, limit=15)
+    reflections = get_reflections(symbol=base, resolved_only=True, limit=15)
+    journal = list_journal_entries(symbol=base, limit=15)
+    quote = tool_get_quote(symbol=base)
+    return {
+        "symbol": base,
+        "quote": quote,
+        "holding": (
+            {"quantity": holding.quantity, "avg_price": holding.avg_price} if holding else None
+        ),
+        "decisions": decisions,
+        "reflections": [
+            {
+                "date": r.date, "rating": r.rating, "raw_return": r.raw_return,
+                "alpha_return": r.alpha_return, "reflection": r.reflection,
+            }
+            for r in reflections
+        ],
+        "journal_entries": journal,
+    }
+
+
 # --- Scan history / reports ---
 
 
@@ -424,6 +453,53 @@ def get_learning_reflections(symbol: str | None = None, limit: int = 100) -> lis
 @app.get("/api/learning/summary")
 def get_learning_summary() -> dict:
     return get_performance_summary()
+
+
+# --- Home overview ---
+
+
+@app.get("/api/home")
+def get_home_overview() -> dict:
+    """Everything the overview screen needs in one call: portfolio with live
+    P&L, the latest scan (if any) and its top actions, recent chat, and
+    aggregate AI performance. Composes existing data functions — no new
+    data logic, just one bundle instead of 4+ separate round trips.
+    """
+    holdings = list_holdings()
+    holdings_with_quotes = []
+    total_pnl = 0.0
+    for h in holdings:
+        quote = tool_get_quote(symbol=h.symbol)
+        last_price = quote.get("last_price")
+        pnl = (last_price - h.avg_price) * h.quantity if last_price is not None else None
+        if pnl is not None:
+            total_pnl += pnl
+        holdings_with_quotes.append(
+            {
+                "symbol": h.symbol, "quantity": h.quantity, "avg_price": h.avg_price,
+                "last_price": last_price, "unrealized_pnl": pnl,
+            }
+        )
+
+    recent_scans = list_scans(limit=1)
+    latest_scan = recent_scans[0] if recent_scans else None
+    latest_scan_decisions = []
+    if latest_scan and latest_scan["status"] == "done":
+        decisions = list_decisions_for_scan(latest_scan["id"])
+        priority = {"Exit position": 0, "Trim position": 1, "Buy (new position)": 2, "Add to position": 3}
+        decisions.sort(key=lambda d: priority.get(d["action_label"], 9))
+        latest_scan_decisions = decisions[:5]
+
+    recent_chat = list_chat_messages(limit=4)
+
+    return {
+        "holdings": holdings_with_quotes,
+        "total_unrealized_pnl": total_pnl if holdings else None,
+        "latest_scan": latest_scan,
+        "latest_scan_top_actions": latest_scan_decisions,
+        "recent_chat": recent_chat,
+        "performance": get_performance_summary(),
+    }
 
 
 # --- Settings ---

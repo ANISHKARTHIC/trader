@@ -11,8 +11,12 @@
 <body>
   <div class="shell">
     <nav class="rail" aria-label="Sections">
-      <div class="rail-mark" title="Verdict">V</div>
-      <button class="rail-btn active" data-tab="today" title="Today">
+      <button class="rail-mark" id="rail-home-mark" title="Home">V</button>
+      <button class="rail-btn active" data-tab="home" title="Home">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 11.5 12 4l8 7.5M6 10v9h5v-5.5h2V19h5v-9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="rail-btn" data-tab="today" title="Today">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 18l5-6 4 4 7-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Today</span>
       </button>
@@ -64,7 +68,51 @@
         </div>
       </header>
 
-      <main id="tab-today" class="tab-content view-today">
+      <main id="tab-home" class="tab-content view-home">
+        <div class="home-grid">
+          <section class="home-card home-portfolio">
+            <div class="home-card-head">
+              <h2>Portfolio</h2>
+              <button type="button" class="link-btn" data-goto="portfolio">Manage &rarr;</button>
+            </div>
+            <div id="home-portfolio-body">
+              <div class="empty-state small"><p>Loading&hellip;</p></div>
+            </div>
+          </section>
+
+          <section class="home-card home-actions">
+            <div class="home-card-head">
+              <h2>Needs attention</h2>
+              <button type="button" class="link-btn" data-goto="today">Full scan &rarr;</button>
+            </div>
+            <div id="home-actions-body">
+              <div class="empty-state small"><p>Loading&hellip;</p></div>
+            </div>
+          </section>
+
+          <section class="home-card home-performance">
+            <div class="home-card-head">
+              <h2>AI track record</h2>
+              <button type="button" class="link-btn" data-goto="journal">Full journal &rarr;</button>
+            </div>
+            <div id="home-performance-body">
+              <div class="empty-state small"><p>Loading&hellip;</p></div>
+            </div>
+          </section>
+
+          <section class="home-card home-chat">
+            <div class="home-card-head">
+              <h2>Recent chat</h2>
+              <button type="button" class="link-btn" data-goto="chat">Open chat &rarr;</button>
+            </div>
+            <div id="home-chat-body">
+              <div class="empty-state small"><p>Loading&hellip;</p></div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <main id="tab-today" class="tab-content view-today" style="display:none">
         <section class="scan-controls">
           <div class="scan-controls-head">
             <h1>Today's actions</h1>
@@ -364,6 +412,17 @@
           </form>
           <p class="hint" id="telegram-status" style="margin-top:14px;"></p>
         </section>
+      </main>
+
+      <main id="tab-symbol" class="tab-content view-symbol" style="display:none">
+        <div class="symbol-header">
+          <button type="button" class="back-btn" id="symbol-back-btn">&larr; Back</button>
+          <h1 id="symbol-title">&mdash;</h1>
+          <span class="mode-pill" id="symbol-holding-pill" style="display:none;">held</span>
+        </div>
+        <div id="symbol-body">
+          <div class="empty-state"><p>Loading&hellip;</p></div>
+        </div>
       </main>
     </div>
   </div>

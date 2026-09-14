@@ -1,17 +1,33 @@
-// --- Rail navigation ---
+// --- Navigation (shared by rail clicks, "-> tab" links, and the symbol back button) ---
+
+let lastNonSymbolTab = "home";
+
+function goToTab(tabName) {
+  document.querySelectorAll(".rail-btn[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabName));
+  document.querySelectorAll(".tab-content").forEach((c) => (c.style.display = "none"));
+  const target = document.getElementById(`tab-${tabName}`);
+  if (target) target.style.display = "";
+  if (tabName !== "symbol") lastNonSymbolTab = tabName;
+
+  if (tabName === "home") refreshHome();
+  if (tabName === "portfolio") refreshHoldings();
+  if (tabName === "journal") refreshJournalTab();
+  if (tabName === "settings") refreshSettingsTab();
+  if (tabName === "chat") loadChatHistory();
+}
 
 document.querySelectorAll(".rail-btn[data-tab]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".rail-btn[data-tab]").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll(".tab-content").forEach((c) => (c.style.display = "none"));
-    btn.classList.add("active");
-    document.getElementById(`tab-${btn.dataset.tab}`).style.display = "";
-    if (btn.dataset.tab === "portfolio") refreshHoldings();
-    if (btn.dataset.tab === "journal") refreshJournalTab();
-    if (btn.dataset.tab === "settings") refreshSettingsTab();
-    if (btn.dataset.tab === "chat") loadChatHistory();
-  });
+  btn.addEventListener("click", () => goToTab(btn.dataset.tab));
 });
+
+document.getElementById("rail-home-mark").addEventListener("click", () => goToTab("home"));
+
+document.addEventListener("click", (e) => {
+  const gotoBtn = e.target.closest("[data-goto]");
+  if (gotoBtn) goToTab(gotoBtn.dataset.goto);
+});
+
+document.getElementById("symbol-back-btn").addEventListener("click", () => goToTab(lastNonSymbolTab));
 
 // --- Mode toggles (Quick/Deep) ---
 
@@ -173,11 +189,13 @@ function renderDetail(job) {
   const plan = r.trade_plan;
   const isFlat = plan.side === "FLAT";
 
+  const baseSymbol = job.symbol.replace(/\.(NS|BO)$/, "");
   detailEl.innerHTML = `
     <div class="detail-header">
       <h2>${job.symbol}</h2>
       <span class="rating-pill rating-${plan.source_rating}">${plan.source_rating}</span>
       <span class="mode-pill ${r.mode || "quick"}">${r.mode || "quick"}</span>
+      <button type="button" class="link-btn" data-symbol="${baseSymbol}" style="margin-left:auto;">Full symbol history &rarr;</button>
     </div>
     <div class="detail-meta">${job.analysis_date}</div>
 
@@ -373,7 +391,7 @@ function renderActionCard(action) {
   return `
     <div class="action-card verdict-${vClass}">
       <div class="action-card-head">
-        <span class="action-symbol">${action.symbol}</span>
+        <span class="action-symbol clickable-symbol" data-symbol="${action.symbol}" onclick="event.stopPropagation()">${action.symbol}</span>
         <span class="action-label-pill ${vClass}">${action.label}</span>
         <div class="action-tags">
           ${action.is_existing_holding ? '<span class="tag">held</span>' : '<span class="tag">new idea</span>'}
@@ -424,17 +442,18 @@ async function refreshHoldings() {
     .map(
       (h) => `
       <tr>
-        <td>${h.symbol}</td>
+        <td><span class="clickable-symbol" data-symbol="${h.symbol}">${h.symbol}</span></td>
         <td>${h.quantity}</td>
         <td>${fmtPrice(h.avg_price)}</td>
-        <td><button data-symbol="${h.symbol}">Remove</button></td>
+        <td><button data-remove-symbol="${h.symbol}">Remove</button></td>
       </tr>
     `
     )
     .join("");
-  holdingsTableBody.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await fetch(`/api/portfolio/${btn.dataset.symbol}`, { method: "DELETE" });
+  holdingsTableBody.querySelectorAll("button[data-remove-symbol]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await fetch(`/api/portfolio/${btn.dataset.removeSymbol}`, { method: "DELETE" });
       refreshHoldings();
     });
   });
@@ -493,7 +512,7 @@ async function refreshJournalEntries() {
     .map((e) => `
       <div class="reflection-card">
         <div class="reflection-head">
-          <span class="rf-symbol">${e.symbol}</span>
+          <span class="rf-symbol clickable-symbol" data-symbol="${e.symbol}">${e.symbol}</span>
           <span class="tag">${actionLabel[e.action_taken] || e.action_taken}</span>
           ${e.actual_qty ? `<span style="color:var(--ink-dim);font-family:var(--font-mono);font-size:12px;">${e.actual_qty} @ ${fmtPrice(e.actual_price)}</span>` : ""}
           <span style="color:var(--ink-faint);margin-left:auto;">${e.entry_date}</span>
@@ -646,7 +665,7 @@ function reportRow(d) {
   const pnl = d.holding_unrealized_pnl;
   return `
     <div class="report-decision-row">
-      <span class="rd-symbol">${d.symbol}</span>
+      <span class="rd-symbol clickable-symbol" data-symbol="${d.symbol}">${d.symbol}</span>
       <span class="rating-pill rating-${rating}" style="font-size:11px;">${rating}</span>
       <span style="color:var(--ink-dim);flex:1;">${escapeHtml(d.action_label)}</span>
       ${pnl != null ? `<span class="metric-value ${pnl >= 0 ? "gain" : "loss"}" style="font-family:var(--font-mono);font-size:12.5px;">${pnl >= 0 ? "+" : ""}${fmtMoney(pnl)}</span>` : ""}
@@ -669,7 +688,7 @@ async function refreshReflections() {
       return `
         <div class="reflection-card">
           <div class="reflection-head">
-            <span class="rf-symbol">${r.ticker}</span>
+            <span class="rf-symbol clickable-symbol" data-symbol="${r.ticker}">${r.ticker}</span>
             <span class="tag">${r.rating}</span>
             <span class="rf-return ${cls}">${r.raw_return || "—"} raw · ${r.alpha_return || "—"} alpha</span>
             <span style="color:var(--ink-faint);margin-left:auto;">${r.resolved_date || r.date}</span>
@@ -787,3 +806,261 @@ chatForm.addEventListener("submit", (e) => {
 document.querySelectorAll(".suggestion-chip").forEach((chip) => {
   chip.addEventListener("click", () => sendChatMessage(chip.dataset.q));
 });
+
+// =====================================================================
+// Symbol view — the cross-linking hub. Every clickable symbol anywhere in
+// the app (portfolio rows, action cards, journal entries, chat) routes here.
+// =====================================================================
+
+function clickableSymbol(sym) {
+  return `<span class="clickable-symbol" data-symbol="${sym}">${sym}</span>`;
+}
+
+// Event delegation: any element anywhere with a data-symbol attribute opens
+// that symbol's view, including content injected after this script loads
+// (action cards, chat replies, etc.) — no per-render rebinding needed.
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-symbol]");
+  if (el) openSymbol(el.dataset.symbol);
+});
+
+async function openSymbol(symbol) {
+  goToTab("symbol");
+  document.getElementById("symbol-title").textContent = symbol;
+  const bodyEl = document.getElementById("symbol-body");
+  bodyEl.innerHTML = `<div class="empty-state"><p><span class="spinner"></span> Loading ${escapeHtml(symbol)}&hellip;</p></div>`;
+
+  const res = await fetch(`/api/symbol/${encodeURIComponent(symbol)}`);
+  if (!res.ok) {
+    bodyEl.innerHTML = `<div class="error-box">Could not load data for ${escapeHtml(symbol)}.</div>`;
+    return;
+  }
+  const data = await res.json();
+  renderSymbolView(data);
+}
+
+function renderSymbolView(data) {
+  const bodyEl = document.getElementById("symbol-body");
+  const holdingPill = document.getElementById("symbol-holding-pill");
+  holdingPill.style.display = data.holding ? "" : "none";
+
+  const q = data.quote || {};
+  const quoteHtml = q.error
+    ? `<p style="color:var(--ink-faint);font-size:13px;">${escapeHtml(q.error)}</p>`
+    : `
+      <div class="trade-plan-grid">
+        <div class="tp-cell"><div class="tp-label">Last</div><div class="tp-value">${fmtPrice(q.last_price)}</div></div>
+        <div class="tp-cell"><div class="tp-label">Prev close</div><div class="tp-value">${fmtPrice(q.previous_close)}</div></div>
+        <div class="tp-cell"><div class="tp-label">52w high</div><div class="tp-value">${fmtPrice(q.year_high)}</div></div>
+        <div class="tp-cell"><div class="tp-label">52w low</div><div class="tp-value">${fmtPrice(q.year_low)}</div></div>
+      </div>
+    `;
+
+  let holdingHtml = "";
+  if (data.holding) {
+    const pnl = q.last_price != null ? (q.last_price - data.holding.avg_price) * data.holding.quantity : null;
+    holdingHtml = `
+      <div class="symbol-section">
+        <h3>Your position</h3>
+        <div class="trade-plan-grid">
+          <div class="tp-cell"><div class="tp-label">Qty</div><div class="tp-value">${data.holding.quantity}</div></div>
+          <div class="tp-cell"><div class="tp-label">Avg cost</div><div class="tp-value">${fmtPrice(data.holding.avg_price)}</div></div>
+          ${pnl != null ? `<div class="tp-cell"><div class="tp-label">P&amp;L</div><div class="tp-value ${pnl >= 0 ? "gain" : "loss"}">${pnl >= 0 ? "+" : ""}${fmtMoney(pnl)}</div></div>` : ""}
+        </div>
+      </div>
+    `;
+  }
+
+  const decisionsHtml = data.decisions.length
+    ? data.decisions
+        .map(
+          (d) => `
+          <div class="action-card" style="margin-bottom:8px;">
+            <div class="action-card-head">
+              <span class="action-symbol">${d.analysis_date}</span>
+              <span class="rating-pill rating-${d.rating}">${d.rating}</span>
+              <span class="tag">${escapeHtml(d.action_label)}</span>
+              <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="action-detail">
+              ${section("Portfolio Manager decision", d.pm_decision_markdown)}
+              ${section("Trader proposal", d.trader_proposal_markdown)}
+            </div>
+          </div>
+        `
+        )
+        .join("")
+    : `<p style="color:var(--ink-faint);font-size:13px;">No past analysis for this symbol yet.</p>`;
+
+  const reflectionsHtml = data.reflections.length
+    ? data.reflections
+        .map(
+          (r) => `
+          <div class="reflection-card">
+            <div class="reflection-head">
+              <span class="tag">${r.rating}</span>
+              <span class="rf-return ${(parseFloat(r.raw_return) || 0) >= 0 ? "gain" : "loss"}">${r.raw_return || "—"} raw · ${r.alpha_return || "—"} alpha</span>
+              <span style="color:var(--ink-faint);margin-left:auto;">${r.date}</span>
+            </div>
+            <div class="reflection-body">${escapeHtml(r.reflection)}</div>
+          </div>
+        `
+        )
+        .join("")
+    : `<p style="color:var(--ink-faint);font-size:13px;">No resolved outcomes yet.</p>`;
+
+  const journalHtml = data.journal_entries.length
+    ? data.journal_entries
+        .map(
+          (j) => `
+          <div class="reflection-card">
+            <div class="reflection-head">
+              <span class="tag">${j.action_taken}</span>
+              <span style="color:var(--ink-faint);margin-left:auto;">${j.entry_date}</span>
+            </div>
+            ${j.notes ? `<div class="reflection-body">${escapeHtml(j.notes)}</div>` : ""}
+          </div>
+        `
+        )
+        .join("")
+    : `<p style="color:var(--ink-faint);font-size:13px;">No journal entries for this symbol.</p>`;
+
+  bodyEl.innerHTML = `
+    <div class="symbol-section">
+      <h3>Live quote</h3>
+      ${quoteHtml}
+    </div>
+    ${holdingHtml}
+    <div class="symbol-section">
+      <h3>Past decisions</h3>
+      ${decisionsHtml}
+    </div>
+    <div class="symbol-section">
+      <h3>What the AI learned</h3>
+      ${reflectionsHtml}
+    </div>
+    <div class="symbol-section">
+      <h3>Your journal</h3>
+      ${journalHtml}
+    </div>
+  `;
+
+  bodyEl.querySelectorAll(".action-card-head").forEach((h) => {
+    h.addEventListener("click", () => h.parentElement.classList.toggle("open"));
+  });
+  bindReportToggles(bodyEl);
+}
+
+// =====================================================================
+// Home overview
+// =====================================================================
+
+async function refreshHome() {
+  const res = await fetch("/api/home");
+  const data = await res.json();
+  renderHomePortfolio(data);
+  renderHomeActions(data);
+  renderHomePerformance(data);
+  renderHomeChat(data);
+}
+
+function renderHomePortfolio(data) {
+  const el = document.getElementById("home-portfolio-body");
+  if (!data.holdings.length) {
+    el.innerHTML = `<div class="empty-state small"><p>No holdings yet. Add one in Portfolio.</p></div>`;
+    return;
+  }
+  const rows = data.holdings
+    .map((h) => {
+      const pnl = h.unrealized_pnl;
+      return `
+        <div class="home-portfolio-row" data-symbol="${h.symbol}">
+          <span class="hp-symbol clickable-symbol" data-symbol="${h.symbol}">${h.symbol}</span>
+          <span class="hp-qty">${h.quantity} sh</span>
+          <span class="hp-price">${fmtPrice(h.last_price)}</span>
+          ${pnl != null ? `<span class="metric-value ${pnl >= 0 ? "gain" : "loss"}" style="font-family:var(--font-mono);font-size:12.5px;">${pnl >= 0 ? "+" : ""}${fmtMoney(pnl)}</span>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+  const total = data.total_unrealized_pnl;
+  el.innerHTML = `
+    ${rows}
+    ${total != null ? `
+    <div class="home-total-pnl">
+      <span>Total unrealized P&amp;L</span>
+      <span class="value ${total >= 0 ? "gain" : "loss"}">${total >= 0 ? "+" : ""}${fmtMoney(total)}</span>
+    </div>` : ""}
+  `;
+}
+
+function renderHomeActions(data) {
+  const el = document.getElementById("home-actions-body");
+  const scan = data.latest_scan;
+  if (!scan) {
+    el.innerHTML = `<div class="empty-state small"><p>No scan run yet. Run one from Today.</p></div>`;
+    return;
+  }
+  if (scan.status === "running") {
+    el.innerHTML = `<div class="empty-state small"><p><span class="spinner"></span> A scan from ${scan.analysis_date} is running&hellip;</p></div>`;
+    return;
+  }
+  if (scan.status === "error") {
+    el.innerHTML = `<div class="empty-state small"><p>The last scan (${scan.analysis_date}) failed. Try again from Today.</p></div>`;
+    return;
+  }
+  const actions = data.latest_scan_top_actions;
+  if (!actions.length) {
+    el.innerHTML = `<div class="empty-state small"><p>Nothing needs attention from the ${scan.analysis_date} scan.</p></div>`;
+    return;
+  }
+  el.innerHTML = actions
+    .map(
+      (d) => `
+      <div class="home-action-row" data-symbol="${d.symbol}">
+        <span class="clickable-symbol">${d.symbol}</span>
+        <span class="tag">${escapeHtml(d.action_label)}</span>
+        <span class="rating-pill rating-${d.rating}" style="margin-left:auto;font-size:11px;">${d.rating}</span>
+      </div>
+    `
+    )
+    .join("");
+}
+
+function renderHomePerformance(data) {
+  const el = document.getElementById("home-performance-body");
+  const p = data.performance;
+  if (!p.total_resolved) {
+    el.innerHTML = `<div class="empty-state small"><p>No resolved decisions yet — check back after a few days of scans.</p></div>`;
+    return;
+  }
+  const accuracy = p.directional_accuracy != null ? `${Math.round(p.directional_accuracy * 100)}%` : "—";
+  const alpha = p.avg_alpha_vs_benchmark;
+  el.innerHTML = `
+    <div class="home-stat-row"><span>Resolved decisions</span><span class="value">${p.total_resolved}</span></div>
+    <div class="home-stat-row"><span>Directional accuracy</span><span class="value">${accuracy}</span></div>
+    <div class="home-stat-row"><span>Avg. alpha vs. benchmark</span><span class="value" style="color:${alpha >= 0 ? "var(--gain)" : "var(--loss)"}">${alpha != null ? (alpha >= 0 ? "+" : "") + (alpha * 100).toFixed(2) + "%" : "—"}</span></div>
+  `;
+}
+
+function renderHomeChat(data) {
+  const el = document.getElementById("home-chat-body");
+  if (!data.recent_chat.length) {
+    el.innerHTML = `<div class="empty-state small"><p>No conversations yet. Ask something in Chat.</p></div>`;
+    return;
+  }
+  el.innerHTML = data.recent_chat
+    .slice(-4)
+    .map(
+      (m) => `
+      <div class="home-chat-msg">
+        <span class="role-label">${m.role === "user" ? "You" : "Verdict"}:</span>
+        ${escapeHtml(m.content.slice(0, 140))}${m.content.length > 140 ? "…" : ""}
+      </div>
+    `
+    )
+    .join("");
+}
+
+// Home is the default tab, so load it now rather than waiting for a rail click.
+refreshHome();
