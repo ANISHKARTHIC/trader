@@ -12,7 +12,7 @@ def _flat_result(symbol: str, rating: str) -> PipelineResult:
         risk_amount=0.0, suggested_qty=0, stop_distance=0.0, source_rating=rating,
     )
     return PipelineResult(
-        symbol=symbol, analysis_date="2026-01-01", pm_decision_markdown="",
+        symbol=symbol, analysis_date="2026-01-01", mode="deep", pm_decision_markdown="",
         trader_proposal_markdown="", market_report="", fundamentals_report="",
         trade_plan=plan, order_filled=False, account_report="", fills_report="",
         positions_report="",
@@ -25,7 +25,7 @@ def _buy_result(symbol: str) -> PipelineResult:
         risk_amount=2500.0, suggested_qty=62, stop_distance=40.0, source_rating="Buy",
     )
     return PipelineResult(
-        symbol=symbol, analysis_date="2026-01-01", pm_decision_markdown="",
+        symbol=symbol, analysis_date="2026-01-01", mode="deep", pm_decision_markdown="",
         trader_proposal_markdown="", market_report="", fundamentals_report="",
         trade_plan=plan, order_filled=True, account_report="", fills_report="",
         positions_report="",

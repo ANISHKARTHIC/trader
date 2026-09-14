@@ -64,9 +64,16 @@
         <section class="scan-controls">
           <div class="scan-controls-head">
             <h1>Today's actions</h1>
-            <p>Every run screens the <strong>entire Nifty 500</strong> (~500 NSE stocks, momentum/RSI/volume/52-week/squeeze signals, no LLM, ~35s) to find the market's strongest setups, then runs the full TradingAgents analyst debate on every holding you own plus the top new ideas &mdash; ranked by what needs attention first.</p>
+            <p>Every run screens the <strong>entire Nifty 500</strong> (~500 NSE stocks, momentum/RSI/volume/52-week/squeeze signals, no LLM, ~35s) to find the market's strongest setups, then runs TradingAgents on every holding you own plus the top new ideas &mdash; ranked by what needs attention first.</p>
           </div>
           <form id="today-form" class="scan-form">
+            <div class="field">
+              <label for="today_mode">Depth</label>
+              <div class="mode-toggle" id="today_mode">
+                <button type="button" class="mode-btn active" data-mode="quick">Quick</button>
+                <button type="button" class="mode-btn" data-mode="deep">Deep</button>
+              </div>
+            </div>
             <div class="field">
               <label for="today_analysis_date">Date</label>
               <input type="date" id="today_analysis_date" required />
@@ -88,6 +95,7 @@
             </div>
             <button type="submit" id="today-submit-btn" class="btn-primary">Run scan</button>
           </form>
+          <p class="hint" id="today-mode-hint">Quick: 2 analysts, 1 debate/risk round &mdash; a fast, real read. Deep: full 4-analyst debate &mdash; slower, more thoroughly argued.</p>
         </section>
 
         <section class="today-results" id="today-results-panel">
@@ -106,7 +114,7 @@
             <section class="scan-controls compact">
               <div class="scan-controls-head">
                 <h1>Research a symbol</h1>
-                <p>Runs the full TradingAgents analyst debate on one ticker and paper-trades the resulting plan.</p>
+                <p>Runs TradingAgents on one ticker and paper-trades the resulting plan &mdash; Quick for a fast read, Deep for the full analyst debate.</p>
               </div>
               <form id="analyze-form" class="scan-form stacked">
                 <div class="field">
@@ -116,6 +124,13 @@
                 <div class="field">
                   <label for="analysis_date">Date</label>
                   <input type="date" id="analysis_date" required />
+                </div>
+                <div class="field">
+                  <label for="single_mode">Depth</label>
+                  <div class="mode-toggle" id="single_mode">
+                    <button type="button" class="mode-btn active" data-mode="quick">Quick</button>
+                    <button type="button" class="mode-btn" data-mode="deep">Deep</button>
+                  </div>
                 </div>
                 <div class="field">
                   <label for="account_equity">Account equity</label>

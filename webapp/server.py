@@ -51,10 +51,11 @@ JobStatus = Literal["queued", "running", "done", "error"]
 
 
 class Job:
-    def __init__(self, job_id: str, symbol: str, analysis_date: str):
+    def __init__(self, job_id: str, symbol: str, analysis_date: str, mode: str = "quick"):
         self.id = job_id
         self.symbol = symbol
         self.analysis_date = analysis_date
+        self.mode = mode
         self.status: JobStatus = "queued"
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.result: dict | None = None
@@ -69,6 +70,7 @@ class AnalyzeRequest(BaseModel):
     symbol: str  # e.g. "RELIANCE" or "RELIANCE.NS"
     analysis_date: str  # "YYYY-MM-DD"
     account_equity: float = 500_000.0
+    mode: str = "quick"  # "quick" or "deep" — see agent.pipeline.ANALYSIS_MODES
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -78,13 +80,14 @@ def _normalize_symbol(symbol: str) -> str:
     return symbol
 
 
-def _run_job(job: Job, account_equity: float) -> None:
+def _run_job(job: Job, account_equity: float, mode: str) -> None:
     job.status = "running"
     try:
         result = run_full_pipeline(
             job.symbol,
             job.analysis_date,
             account_equity=account_equity,
+            mode=mode,
         )
         result_dict = asdict(result)
         result_dict["trade_plan"]["side"] = result.trade_plan.side.value
@@ -99,12 +102,12 @@ def _run_job(job: Job, account_equity: float) -> None:
 def start_analysis(req: AnalyzeRequest) -> dict:
     symbol = _normalize_symbol(req.symbol)
     job_id = uuid.uuid4().hex[:12]
-    job = Job(job_id, symbol, req.analysis_date)
+    job = Job(job_id, symbol, req.analysis_date, mode=req.mode)
     with _jobs_lock:
         _jobs[job_id] = job
 
     thread = threading.Thread(
-        target=_run_job, args=(job, req.account_equity), daemon=True
+        target=_run_job, args=(job, req.account_equity, req.mode), daemon=True
     )
     thread.start()
 
@@ -121,6 +124,7 @@ def get_job(job_id: str) -> dict:
         "job_id": job.id,
         "symbol": job.symbol,
         "analysis_date": job.analysis_date,
+        "mode": job.mode,
         "status": job.status,
         "created_at": job.created_at,
         "result": job.result,
@@ -138,6 +142,7 @@ def list_jobs() -> list[dict]:
             "job_id": j.id,
             "symbol": j.symbol,
             "analysis_date": j.analysis_date,
+            "mode": j.mode,
             "status": j.status,
             "created_at": j.created_at,
             "rating": (j.result or {}).get("trade_plan", {}).get("source_rating"),
@@ -147,11 +152,15 @@ def list_jobs() -> list[dict]:
 
 
 class TodayJob:
-    def __init__(self, job_id: str, analysis_date: str, screen_top_n: int, deep_top_n: int):
+    def __init__(
+        self, job_id: str, analysis_date: str, screen_top_n: int, deep_top_n: int,
+        mode: str = "quick",
+    ):
         self.id = job_id
         self.analysis_date = analysis_date
         self.screen_top_n = screen_top_n
         self.deep_top_n = deep_top_n
+        self.mode = mode
         self.status: JobStatus = "queued"
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.stage = "queued"
@@ -170,6 +179,7 @@ class TodayRequest(BaseModel):
     screen_top_n: int = 30
     deep_analyze_top_n: int = 8
     account_equity: float = 500_000.0
+    mode: str = "quick"  # "quick" or "deep" — see agent.pipeline.ANALYSIS_MODES
 
 
 def _run_today_job(job: TodayJob, account_equity: float) -> None:
@@ -193,6 +203,7 @@ def _run_today_job(job: TodayJob, account_equity: float) -> None:
             account_equity=account_equity,
             progress_cb=progress_cb,
             max_concurrent_analyses=get_settings().max_concurrent_analyses,
+            mode=job.mode,
         )
         out = []
         for a in actions:
@@ -258,7 +269,7 @@ def _run_today_job(job: TodayJob, account_equity: float) -> None:
 def start_today(req: TodayRequest) -> dict:
     job_id = uuid.uuid4().hex[:12]
     analysis_date = req.analysis_date or datetime.now().date().isoformat()
-    job = TodayJob(job_id, analysis_date, req.screen_top_n, req.deep_analyze_top_n)
+    job = TodayJob(job_id, analysis_date, req.screen_top_n, req.deep_analyze_top_n, mode=req.mode)
     with _today_jobs_lock:
         _today_jobs[job_id] = job
 
@@ -278,6 +289,7 @@ def get_today(job_id: str) -> dict:
     return {
         "job_id": job.id,
         "analysis_date": job.analysis_date,
+        "mode": job.mode,
         "status": job.status,
         "stage": job.stage,
         "progress_done": job.progress_done,

@@ -51,10 +51,32 @@ LOT_SIZE = 1
 _memory_log_io_lock = threading.Lock()
 
 
+# Two analysis depths, both real TradingAgents runs (same graph, same data
+# grounding, same structured output) — not a separate/simplified pipeline.
+# "quick" trims analyst count and debate/risk rounds to the framework's own
+# floor (1 round still means bull+bear each speak once, all three risk
+# debators speak once — TradingAgents has no true zero-debate mode, see
+# conditional_logic.py). "deep" is the original full-roster, 2-round config.
+# Roughly 3-4x fewer LLM calls for "quick", verified empirically below.
+ANALYSIS_MODES = {
+    "quick": {
+        "selected_analysts": ("market", "fundamentals"),
+        "max_debate_rounds": 1,
+        "max_risk_discuss_rounds": 1,
+    },
+    "deep": {
+        "selected_analysts": ("market", "social", "news", "fundamentals"),
+        "max_debate_rounds": 2,
+        "max_risk_discuss_rounds": 2,
+    },
+}
+
+
 @dataclass
 class PipelineResult:
     symbol: str
     analysis_date: str
+    mode: str
     pm_decision_markdown: str
     trader_proposal_markdown: str
     market_report: str
@@ -158,7 +180,9 @@ def _guard_memory_log_io(memory_log) -> None:
         setattr(memory_log, method_name, locked)
 
 
-def run_paper_trade(final_state: dict, account_equity: float = 500_000.0) -> PipelineResult:
+def run_paper_trade(
+    final_state: dict, account_equity: float = 500_000.0, mode: str = "deep"
+) -> PipelineResult:
     """Take a completed TradingAgents state and paper-trade the resulting plan."""
     symbol_ns = final_state["company_of_interest"]
     symbol_base = symbol_ns.removesuffix(".NS").removesuffix(".BO")
@@ -227,6 +251,7 @@ def run_paper_trade(final_state: dict, account_equity: float = 500_000.0) -> Pip
     return PipelineResult(
         symbol=symbol_ns,
         analysis_date=analysis_date,
+        mode=mode,
         pm_decision_markdown=final_state.get("final_trade_decision", ""),
         trader_proposal_markdown=final_state.get("trader_investment_plan", ""),
         market_report=final_state.get("market_report", ""),
@@ -246,13 +271,26 @@ def run_full_pipeline(
     llm_provider: str | None = None,
     deep_think_llm: str | None = None,
     quick_think_llm: str | None = None,
+    mode: str = "deep",
 ) -> PipelineResult:
-    """Run TradingAgents, then paper-trade the resulting decision. Blocking."""
+    """Run TradingAgents, then paper-trade the resulting decision. Blocking.
+
+    mode: "quick" (2 analysts, 1 debate/risk round — a fast read, real data
+    grounding, no shortcuts on the underlying analysis, just less debate) or
+    "deep" (full 4-analyst roster, 2 rounds — the original config). See
+    ANALYSIS_MODES above.
+    """
+    if mode not in ANALYSIS_MODES:
+        raise ValueError(f"Unknown analysis mode {mode!r}, expected one of {list(ANALYSIS_MODES)}")
+    preset = ANALYSIS_MODES[mode]
     final_state = run_trading_agents(
         symbol_ns,
         analysis_date,
         llm_provider=llm_provider,
         deep_think_llm=deep_think_llm,
         quick_think_llm=quick_think_llm,
+        selected_analysts=preset["selected_analysts"],
+        max_debate_rounds=preset["max_debate_rounds"],
+        max_risk_discuss_rounds=preset["max_risk_discuss_rounds"],
     )
-    return run_paper_trade(final_state, account_equity=account_equity)
+    return run_paper_trade(final_state, account_equity=account_equity, mode=mode)

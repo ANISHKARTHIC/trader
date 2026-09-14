@@ -12,6 +12,21 @@ document.querySelectorAll(".rail-btn[data-tab]").forEach((btn) => {
   });
 });
 
+// --- Mode toggles (Quick/Deep) ---
+
+const modeState = {}; // id -> "quick" | "deep"
+
+document.querySelectorAll(".mode-toggle").forEach((toggle) => {
+  modeState[toggle.id] = "quick";
+  toggle.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      modeState[toggle.id] = btn.dataset.mode;
+    });
+  });
+});
+
 // --- Model status dot ---
 
 async function checkModelStatus() {
@@ -81,6 +96,7 @@ form.addEventListener("submit", async (e) => {
     symbol: document.getElementById("symbol").value,
     analysis_date: document.getElementById("analysis_date").value,
     account_equity: parseFloat(document.getElementById("account_equity").value),
+    mode: modeState["single_mode"] || "quick",
   };
 
   try {
@@ -118,6 +134,7 @@ async function refreshJobList() {
       <span class="job-symbol">${job.symbol}</span>
       <span class="job-date">${job.analysis_date}</span>
       <span class="badge badge-${job.status}">${job.status}</span>
+      <span class="mode-pill ${job.mode || "quick"}">${job.mode || "quick"}</span>
       ${job.rating ? `<span class="tag rating-${job.rating}" style="width:fit-content">${job.rating}</span>` : ""}
     `;
     li.addEventListener("click", async () => {
@@ -135,7 +152,7 @@ function renderDetail(job) {
       <div class="detail-header"><h2>${job.symbol}</h2></div>
       <div class="detail-meta">${job.analysis_date}</div>
       <p style="color:var(--ink-dim);font-size:13px;display:flex;align-items:center;gap:8px;">
-        <span class="spinner"></span> Running the full TradingAgents analyst debate. This takes several minutes.
+        <span class="spinner"></span> Running TradingAgents (${job.mode || "quick"} mode). ${job.mode === "deep" ? "This takes several minutes." : "Usually under a minute or two."}
       </p>
     `;
     schedulePoll(job.job_id);
@@ -159,6 +176,7 @@ function renderDetail(job) {
     <div class="detail-header">
       <h2>${job.symbol}</h2>
       <span class="rating-pill rating-${plan.source_rating}">${plan.source_rating}</span>
+      <span class="mode-pill ${r.mode || "quick"}">${r.mode || "quick"}</span>
     </div>
     <div class="detail-meta">${job.analysis_date}</div>
 
@@ -222,6 +240,7 @@ todayForm.addEventListener("submit", async (e) => {
     screen_top_n: parseInt(document.getElementById("today_screen_top_n").value, 10),
     deep_analyze_top_n: parseInt(document.getElementById("today_deep_top_n").value, 10),
     account_equity: parseFloat(document.getElementById("today_account_equity").value),
+    mode: modeState["today_mode"] || "quick",
   };
 
   try {
@@ -358,6 +377,7 @@ function renderActionCard(action) {
         <div class="action-tags">
           ${action.is_existing_holding ? '<span class="tag">held</span>' : '<span class="tag">new idea</span>'}
           ${action.screen_score != null ? `<span class="tag">score ${action.screen_score}</span>` : ""}
+          <span class="mode-pill ${action.result.mode || "quick"}">${action.result.mode || "quick"}</span>
         </div>
         <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>

@@ -65,12 +65,14 @@ def _label_for_new_idea(side: Side) -> ActionLabel:
 
 def _analyze_one(
     symbol: str, is_holding: bool, analysis_date: str,
-    account_equity: float, holdings_by_symbol: dict[str, Holding],
+    account_equity: float, holdings_by_symbol: dict[str, Holding], mode: str,
 ) -> tuple[ActionLabel, PipelineResult, HoldingEvaluation | None]:
     if is_holding:
-        holding_eval = evaluate_holding(holdings_by_symbol[symbol], analysis_date)
+        holding_eval = evaluate_holding(holdings_by_symbol[symbol], analysis_date, mode=mode)
         return _VERDICT_TO_LABEL[holding_eval.verdict], holding_eval.ta_result, holding_eval
-    result = run_full_pipeline(f"{symbol}.NS", analysis_date, account_equity=account_equity)
+    result = run_full_pipeline(
+        f"{symbol}.NS", analysis_date, account_equity=account_equity, mode=mode
+    )
     return _label_for_new_idea(result.trade_plan.side), result, None
 
 
@@ -80,7 +82,8 @@ def build_today(
     deep_analyze_top_n: int = 8,
     account_equity: float = 500_000.0,
     progress_cb=None,
-    max_concurrent_analyses: int = 4,
+    max_concurrent_analyses: int = 6,
+    mode: str = "quick",
 ) -> list[CompanionAction]:
     """Run the full companion pipeline. Blocking — call from a background job.
 
@@ -133,7 +136,7 @@ def build_today(
         symbol, is_holding = item
         try:
             label, result, holding_eval = _analyze_one(
-                symbol, is_holding, analysis_date, account_equity, holdings_by_symbol
+                symbol, is_holding, analysis_date, account_equity, holdings_by_symbol, mode
             )
         except Exception:
             return None  # one bad ticker (delisted, no data, LLM hiccup) shouldn't kill the run

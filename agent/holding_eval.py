@@ -70,9 +70,18 @@ def evaluate_holding(
     llm_provider: str | None = None,
     deep_think_llm: str | None = None,
     quick_think_llm: str | None = None,
+    mode: str = "deep",
 ) -> HoldingEvaluation:
-    """Run the hard-stop check and a full TradingAgents re-analysis on one holding."""
+    """Run the hard-stop check and a TradingAgents re-analysis on one holding.
+
+    mode: "quick" or "deep" — see agent.pipeline.ANALYSIS_MODES. The hard
+    stop/target check below is unaffected by mode; it's pure price math,
+    never an LLM call.
+    """
+    from agent.pipeline import ANALYSIS_MODES
+
     symbol_ns = holding.yfinance_symbol
+    preset = ANALYSIS_MODES[mode]
 
     final_state = run_trading_agents(
         symbol_ns,
@@ -80,9 +89,14 @@ def evaluate_holding(
         llm_provider=llm_provider,
         deep_think_llm=deep_think_llm,
         quick_think_llm=quick_think_llm,
+        selected_analysts=preset["selected_analysts"],
+        max_debate_rounds=preset["max_debate_rounds"],
+        max_risk_discuss_rounds=preset["max_risk_discuss_rounds"],
     )
 
-    ta_result = run_paper_trade(final_state, account_equity=holding.quantity * holding.avg_price)
+    ta_result = run_paper_trade(
+        final_state, account_equity=holding.quantity * holding.avg_price, mode=mode
+    )
 
     atr_14, last_price = load_atr_and_last_price(symbol_ns)
     stop, target = _hard_levels(holding.avg_price, atr_14)
