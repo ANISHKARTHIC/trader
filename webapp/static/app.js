@@ -958,10 +958,35 @@ function renderSymbolView(data) {
 async function refreshHome() {
   const res = await fetch("/api/home");
   const data = await res.json();
+  renderHomeHero(data);
   renderHomePortfolio(data);
   renderHomeActions(data);
   renderHomePerformance(data);
   renderHomeChat(data);
+}
+
+function renderHomeHero(data) {
+  const valueEl = document.getElementById("home-hero-value");
+  const subEl = document.getElementById("home-hero-sub");
+  if (!data.holdings.length) {
+    valueEl.textContent = "₹0";
+    valueEl.className = "home-hero-figure";
+    subEl.textContent = "No holdings yet — add one in Portfolio to see it here.";
+    return;
+  }
+  const netWorth = data.holdings.reduce(
+    (sum, h) => sum + (h.last_price != null ? h.last_price * h.quantity : h.avg_price * h.quantity),
+    0
+  );
+  const total = data.total_unrealized_pnl;
+  valueEl.textContent = fmtMoney(netWorth);
+  valueEl.className = "home-hero-figure";
+  if (total != null) {
+    const pct = netWorth - total !== 0 ? (total / (netWorth - total)) * 100 : 0;
+    subEl.innerHTML = `<span class="${total >= 0 ? "gain" : "loss"}">${total >= 0 ? "+" : ""}${fmtMoney(total)} (${total >= 0 ? "+" : ""}${pct.toFixed(2)}%)</span> unrealized across ${data.holdings.length} holding${data.holdings.length === 1 ? "" : "s"}`;
+  } else {
+    subEl.textContent = `Across ${data.holdings.length} holding${data.holdings.length === 1 ? "" : "s"}`;
+  }
 }
 
 function renderHomePortfolio(data) {
