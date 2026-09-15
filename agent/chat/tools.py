@@ -18,6 +18,7 @@ import yfinance as yf
 
 from agent.db.learning import get_performance_summary, get_reflections
 from agent.db.store import list_decisions_for_symbol, list_journal_entries, list_scans
+from agent.intraday_idea import get_budget_trade_idea
 from agent.portfolio.store import list_holdings
 
 TOOL_SCHEMAS = [
@@ -55,6 +56,30 @@ TOOL_SCHEMAS = [
                     "days": {"type": "integer", "description": "How many trading days back, default 20"},
                 },
                 "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_budget_trade_idea",
+            "description": (
+                "Fast (a couple seconds), deterministic trade idea for a specific stock sized to an exact "
+                "rupee budget — entry, stop, target, and share quantity that fits the budget. Use this "
+                "instead of start_analysis whenever the user gives a specific rupee amount and wants a "
+                "quick same-day/intraday-style answer rather than a full multi-minute TradingAgents debate. "
+                "Based on the latest daily bar + live quote (no real intraday tick data exists in this "
+                "app) — always pass this limitation on to the user, don't present it as precision intraday "
+                "timing. If the user names a symbol, call this directly with it; if they don't name one, "
+                "ask which symbol first rather than guessing one."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "NSE symbol without suffix, e.g. RELIANCE"},
+                    "budget_rupees": {"type": "number", "description": "Exact rupee amount available to spend"},
+                },
+                "required": ["symbol", "budget_rupees"],
             },
         },
     },
@@ -201,6 +226,24 @@ def tool_get_price_history(symbol: str, days: int = 20, **_) -> dict:
         return {"error": f"Could not fetch price history for {ns_symbol}: {exc}"}
 
 
+def tool_get_budget_trade_idea(symbol: str, budget_rupees: float, **_) -> dict:
+    idea = get_budget_trade_idea(symbol, budget_rupees)
+    return {
+        "symbol": idea.symbol,
+        "verdict": idea.verdict,
+        "reason": idea.reason,
+        "last_price": idea.last_price,
+        "entry": idea.entry,
+        "stop": idea.stop,
+        "target": idea.target,
+        "quantity": idea.quantity,
+        "cost": idea.cost,
+        "risk_amount": idea.risk_amount,
+        "screen_score": idea.screen_score,
+        "caveat": idea.caveat,
+    }
+
+
 def tool_get_past_decisions(symbol: str, **_) -> dict:
     base = symbol.strip().upper().removesuffix(".NS").removesuffix(".BO")
     decisions = list_decisions_for_symbol(base, limit=10)
@@ -272,6 +315,7 @@ TOOL_IMPLS = {
     "get_portfolio": tool_get_portfolio,
     "get_quote": tool_get_quote,
     "get_price_history": tool_get_price_history,
+    "get_budget_trade_idea": tool_get_budget_trade_idea,
     "get_past_decisions": tool_get_past_decisions,
     "get_ai_reflections": tool_get_ai_reflections,
     "get_journal_entries": tool_get_journal_entries,
