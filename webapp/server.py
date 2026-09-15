@@ -36,6 +36,7 @@ from agent.db.store import (
     list_scans, get_scan, list_decisions_for_scan, list_decisions_for_symbol,
     add_journal_entry, list_journal_entries,
     add_chat_message, list_chat_messages, clear_chat_messages,
+    reconcile_stale_scans,
 )
 from agent.db.learning import get_reflections, get_performance_summary, get_journal_with_reflections
 from agent.settings import get_settings, update_settings, KNOWN_OLLAMA_MODELS
@@ -45,6 +46,9 @@ from agent.chat.tools import register_start_analysis, tool_get_quote
 logger = logging.getLogger(__name__)
 
 init_db()
+_fixed = reconcile_stale_scans()
+if _fixed:
+    logger.warning("Marked %d stale 'running' scan(s) from a prior process as errored.", _fixed)
 
 app = FastAPI(title="Trading Agent Dashboard")
 

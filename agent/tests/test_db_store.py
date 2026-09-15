@@ -84,3 +84,27 @@ def test_journal_rejects_invalid_action_taken_at_db_level():
                 "VALUES ('X', '2026-01-01', 'bogus', 'now')"
             )
             conn.commit()
+
+
+def test_reconcile_stale_scans_marks_running_as_error():
+    stuck_id = store.create_scan("2026-01-01", "today")
+    done_id = store.create_scan("2026-01-02", "today")
+    store.complete_scan(done_id, status="done")
+
+    fixed_count = store.reconcile_stale_scans()
+
+    assert fixed_count == 1
+    stuck = store.get_scan(stuck_id)
+    assert stuck["status"] == "error"
+    assert stuck["completed_at"] is not None
+    assert "restarted" in stuck["error"]
+
+    done = store.get_scan(done_id)
+    assert done["status"] == "done"  # untouched
+
+
+def test_reconcile_stale_scans_is_a_noop_when_nothing_stuck():
+    scan_id = store.create_scan("2026-01-01", "today")
+    store.complete_scan(scan_id, status="done")
+
+    assert store.reconcile_stale_scans() == 0

@@ -20,6 +20,7 @@ from agent.db.learning import get_performance_summary, get_reflections
 from agent.db.store import list_decisions_for_symbol, list_journal_entries, list_scans
 from agent.intraday_idea import get_budget_trade_idea
 from agent.portfolio.store import list_holdings
+from agent.screener.screen import run_screen
 
 TOOL_SCHEMAS = [
     {
@@ -80,6 +81,29 @@ TOOL_SCHEMAS = [
                     "budget_rupees": {"type": "number", "description": "Exact rupee amount available to spend"},
                 },
                 "required": ["symbol", "budget_rupees"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_candidate_stocks",
+            "description": (
+                "Screen the whole Nifty 500 (deterministic technical scoring — momentum, RSI, volume, "
+                "trend, 52-week levels, volatility squeeze; no LLM) and return the top-ranked symbols "
+                "right now. Use this whenever the user asks for a stock idea WITHOUT naming a specific "
+                "symbol — 'any other stock', 'what looks good', 'find me something for intraday', 'what "
+                "should I buy' with no ticker given. Do not guess random ticker names and call "
+                "get_budget_trade_idea on them one at a time — call this first to get real candidates, "
+                "then use get_budget_trade_idea on the ones that look most relevant to what the user "
+                "asked for (e.g. their stated budget). Takes about 20-30 seconds — say you're screening "
+                "the market and it'll take a moment, don't go silent while waiting."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "top_n": {"type": "integer", "description": "How many top candidates to return, default 8"},
+                },
             },
         },
     },
@@ -244,6 +268,32 @@ def tool_get_budget_trade_idea(symbol: str, budget_rupees: float, **_) -> dict:
     }
 
 
+def tool_find_candidate_stocks(top_n: int = 8, **_) -> dict:
+    top_n = max(1, min(top_n, 20))
+    try:
+        results = run_screen(top_n=top_n)
+    except Exception as exc:
+        return {"error": f"Screening the market failed: {exc}"}
+    return {
+        "candidates": [
+            {
+                "symbol": r.symbol,
+                "company_name": r.company_name,
+                "sector": r.sector,
+                "last_close": r.last_close,
+                "screen_score": r.screen_score,
+                "momentum_21d_pct": round(r.momentum_21d * 100, 2),
+                "rsi_14": round(r.rsi_14, 1),
+                "above_50sma": r.above_50sma,
+                "above_200sma": r.above_200sma,
+                "near_52w_high": r.near_52w_high,
+                "near_52w_low": r.near_52w_low,
+            }
+            for r in results
+        ],
+    }
+
+
 def tool_get_past_decisions(symbol: str, **_) -> dict:
     base = symbol.strip().upper().removesuffix(".NS").removesuffix(".BO")
     decisions = list_decisions_for_symbol(base, limit=10)
@@ -316,6 +366,7 @@ TOOL_IMPLS = {
     "get_quote": tool_get_quote,
     "get_price_history": tool_get_price_history,
     "get_budget_trade_idea": tool_get_budget_trade_idea,
+    "find_candidate_stocks": tool_find_candidate_stocks,
     "get_past_decisions": tool_get_past_decisions,
     "get_ai_reflections": tool_get_ai_reflections,
     "get_journal_entries": tool_get_journal_entries,

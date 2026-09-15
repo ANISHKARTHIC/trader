@@ -68,6 +68,28 @@ def complete_scan(scan_id: int, status: str = "done", error: str | None = None) 
         )
 
 
+def reconcile_stale_scans() -> int:
+    """Mark any scan still 'running' as errored. Call once at process startup.
+
+    A scan's background thread lives only as long as the process that
+    started it — if the server is killed/restarted mid-scan (as happens
+    routinely during development, or any crash), the in-memory job and its
+    thread are gone, but nothing ever updates the DB row, so it stays
+    "running" forever and the Home overview reports a scan in progress that
+    isn't running anywhere. Since a fresh process start means no scan from
+    a prior run can possibly still be executing, every "running" row at
+    startup is stale by definition. Returns how many rows were fixed.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE scans SET status = 'error', completed_at = ?, "
+            "error = 'Interrupted — the server restarted while this scan was running.' "
+            "WHERE status = 'running'",
+            (_now(),),
+        )
+        return cur.rowcount
+
+
 def record_decision(
     scan_id: int,
     symbol: str,
